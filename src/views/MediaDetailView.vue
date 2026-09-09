@@ -11,6 +11,7 @@ import { getTmdbDetails } from '@/services/api/tmdb.js'
 import { getMusicDetails } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
+import TvEpisodeTracker from '@/components/TvEpisodeTracker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -515,6 +516,13 @@ function goBack() {
               </div>
             </transition>
           </div>
+
+          <!-- Interactive TV Seasons & Episodes Tracker -->
+          <TvEpisodeTracker
+            v-if="media.type === 'show'"
+            :media="media"
+            :content-id="contentId"
+          />
 
           <!-- Overview / Synopsis -->
           <div class="overview-section">
