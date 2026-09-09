@@ -1,5 +1,5 @@
-# Build stage
-FROM docker.io/library/node:22-alpine AS builder
+# Build stage — pinned to Node LTS (same image used for local dev/test via Podman)
+FROM docker.io/library/node:lts-alpine AS builder
 
 WORKDIR /app
 

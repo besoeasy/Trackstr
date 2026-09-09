@@ -134,6 +134,42 @@ npm run dev
 npm test
 ```
 
+> Prefer Podman? All dev/test/build steps run in Node LTS containers —
+> no host Node required:
+>
+> ```bash
+> # Dev server on http://localhost:5173 (Node LTS via Podman)
+> npm run dev:podman
+>
+> # Tests in Node LTS via Podman
+> npm run test:podman
+>
+> # Production build in Node LTS via Podman
+> npm run build:podman
+>
+> # Preview the production build on http://localhost:4173
+> npm run preview:podman
+> ```
+>
+> These use `docker.io/library/node:lts-alpine` with `--userns=keep-id`,
+> so files created in the container stay owned by your user.
+>
+> No host `npm` at all? Run the same containers directly:
+>
+> ```bash
+> # Dev server
+> podman run --rm -it -v ./:/app:z -w /app --userns=keep-id -p 5173:5173 \
+>   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm run dev -- --host 0.0.0.0 --port 5173"
+>
+> # Tests
+> podman run --rm -v ./:/app:z -w /app --userns=keep-id \
+>   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm test"
+>
+> # Production build
+> podman run --rm -v ./:/app:z -w /app --userns=keep-id \
+>   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm run build"
+> ```
+
 Open http://localhost:5173, connect a Nostr extension (Alby / nos2x), and start tracking movies, shows, and music. To deploy, run `npm run build` and host the static `dist/` anywhere — your data still lives on Nostr relays you choose.
 
 ## 🤝 Contributing
