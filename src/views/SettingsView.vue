@@ -90,7 +90,7 @@ function resetOriginless() {
         <div class="status-box">
           <template v-if="authStore.isAuthenticated">
             <div class="signer-header-row">
-              <span v-if="authStore.authType === 'bunker'" class="badge badge-success">⚡ Bunker Connected</span>
+              <span v-if="authStore.authType === 'nsec'" class="badge badge-success">🔑 nsec Connected</span>
               <span v-else class="badge badge-success">🧩 Extension Connected</span>
               <router-link to="/connect" class="btn btn-secondary btn-xs">Switch Signer</router-link>
             </div>
@@ -101,11 +101,11 @@ function resetOriginless() {
           <template v-else>
             <div class="signer-header-row">
               <span v-if="hasExtension" class="badge badge-success">Extension Detected</span>
-              <span v-else class="badge badge-neutral">No Extension (Bunker available)</span>
+              <span v-else class="badge badge-neutral">No Signer Connected</span>
               <router-link to="/connect" class="btn btn-primary btn-xs">Connect Now</router-link>
             </div>
             <p class="form-hint">
-              Connect via browser extension (Alby, nos2x) or remote Bunker (nsec.app, Amber).
+              Connect via browser extension (Alby, nos2x), paste an nsec key, or create a disposable account.
             </p>
           </template>
         </div>

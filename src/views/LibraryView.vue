@@ -140,7 +140,7 @@ function navigateToItem(contentId, media) {
     <!-- Login prompt if not authenticated -->
     <div v-if="!authStore.isAuthenticated" class="auth-banner card">
       <h2>Connect your Nostr Account</h2>
-      <p>Connect your browser extension or Bunker remote signer to view and manage your library across relays.</p>
+      <p>Connect with a browser extension, paste an nsec key, or create a disposable account to view and manage your library across relays.</p>
       <router-link to="/connect?returnTo=/library" class="btn btn-primary">
         ⚡ Connect Nostr
       </router-link>
