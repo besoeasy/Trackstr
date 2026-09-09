@@ -136,10 +136,13 @@ describe('buildReviewEvent()', () => {
 describe('buildDeletionEvent()', () => {
   const eid = 'ef'.repeat(32)
 
-  it('builds e-refs and a-refs', () => {
+  it('builds e-refs and a-refs (a-refs carry the NIP-09 k tag)', () => {
     expect(buildDeletionEvent({ eventId: eid }).tags).toEqual([['e', eid]])
     const coord = `35402:${'ab'.repeat(32)}:${CID}:s1e3`
-    expect(buildDeletionEvent({ coordinate: coord }).tags).toEqual([['a', coord]])
+    expect(buildDeletionEvent({ coordinate: coord }).tags).toEqual([
+      ['a', coord],
+      ['k', '35402'],
+    ])
   })
 
   it('rejects ambiguous or malformed targets', () => {

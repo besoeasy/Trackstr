@@ -138,6 +138,11 @@ export const useMediaStore = defineStore('media', () => {
    */
   function ingestEvent(evt) {
     if (!evt || !Array.isArray(evt.tags)) return
+    // Inbound NIP-09 deletion notices are applied, never stored.
+    if (evt.kind === KINDS.DELETION) {
+      applyDeletionEvent(evt)
+      return
+    }
     const media = parseMediaTags(evt.tags)
     // Drop malformed events instead of polluting state with undefined fields.
     if (!media.contentId) return
@@ -261,6 +266,76 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Ingests a batch with deletions applied last, so a notice arriving
+   * ahead of its target in the same response still takes effect.
+   */
+  function ingestBatch(events) {
+    if (!Array.isArray(events)) return
+    for (const evt of events) {
+      if (evt && evt.kind !== KINDS.DELETION) ingestEvent(evt)
+    }
+    for (const evt of events) {
+      if (evt && evt.kind === KINDS.DELETION) ingestEvent(evt)
+    }
+  }
+
+  /**
+   * Applies an inbound NIP-09 (kind 5) deletion notice to local state.
+   * Only the author's own notices are honored, mirroring relay rules:
+   * a forged notice for somebody else's records is ignored.
+   */
+  function applyDeletionEvent(evt) {
+    const deleter = String(evt.pubkey || '').toLowerCase()
+    if (!deleter) return
+    for (const tag of evt.tags) {
+      if (!Array.isArray(tag)) continue
+      if (tag[0] === 'e' && typeof tag[1] === 'string') {
+        const targetId = tag[1]
+        const review = reviews.value.find((r) => r.id === targetId)
+        if (review && String(review.pubkey || '').toLowerCase() === deleter) {
+          reviews.value = reviews.value.filter((r) => r.id !== targetId)
+          pruneProvenance(review.contentId)
+        }
+        const log = activityLogs.value.find((a) => a.id === targetId)
+        if (log && String(log.pubkey || '').toLowerCase() === deleter) {
+          activityLogs.value = activityLogs.value.filter((a) => a.id !== targetId)
+          pruneProvenance(log.contentId)
+        }
+        // Replaceable events deleted by id (non-standard but tolerated).
+        for (const map of [statuses.value, ratings.value]) {
+          for (const [key, entry] of Object.entries(map)) {
+            if (entry?.eventId === targetId && String(entry.pubkey || '').toLowerCase() === deleter) {
+              delete map[key]
+              pruneProvenance((entry.contentId || '').split(':')[0])
+            }
+          }
+        }
+      } else if (tag[0] === 'a' && typeof tag[1] === 'string') {
+        const parts = tag[1].split(':')
+        if (parts.length < 3) continue
+        const [kindStr, targetPubkey, ...dParts] = parts
+        if (!targetPubkey || targetPubkey.toLowerCase() !== deleter) continue
+        const kind = Number(kindStr)
+        const dTag = dParts.join(':')
+        if (!dTag) continue
+        const base = dTag.split(':')[0]
+        if (kind === KINDS.RATING) {
+          delete ratings.value[`${targetPubkey}:${dTag}`]
+        } else if (kind === KINDS.STATUS) {
+          delete statuses.value[`${targetPubkey}:${dTag}`]
+        } else if (kind === KINDS.MEDIA_METADATA) {
+          const current = communityMetadata.value[base]
+          if (current && String(current.author || '').toLowerCase() === deleter) {
+            delete communityMetadata.value[base]
+          }
+        }
+        pruneProvenance(base)
+      }
+    }
+    saveToLocalStorage()
+  }
+
+  /**
    * Fetches the viewer's NIP-02 follow list for metadata preference.
    */
   async function fetchFollows(pubkey) {
@@ -305,7 +380,7 @@ export const useMediaStore = defineStore('media', () => {
     try {
       const filter = {
         authors: [userPubkey],
-        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
         limit: 500,
       }
 
@@ -315,7 +390,7 @@ export const useMediaStore = defineStore('media', () => {
       }
 
       const events = await nostrClient.queryEvents(filter)
-      events.forEach((evt) => ingestEvent(evt))
+      ingestBatch(events)
 
       // Advance the cursor only to what was actually observed — never to
       // wall-clock now — so slow-relay events can't fall into a sync gap.
@@ -348,9 +423,12 @@ export const useMediaStore = defineStore('media', () => {
       const events = await nostrClient.queryEvents([
         { '#d': [contentId], kinds, limit: 50 },
         { '#contentid': [contentId], kinds, limit: 50 },
+        // Deletion notices carry e/a refs (not media tags), so they need
+        // their own unfiltered query to be honored on this page.
+        { kinds: [KINDS.DELETION], limit: 50 },
       ])
 
-      events.forEach((evt) => ingestEvent(evt))
+      ingestBatch(events)
       saveToLocalStorage()
     } catch (err) {
       console.warn('Failed to fetch media details from relays:', err)
@@ -363,13 +441,14 @@ export const useMediaStore = defineStore('media', () => {
   async function fetchRecentFeed(limit = 25) {
     try {
       const events = await nostrClient.queryEvents({
-        kinds: [KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+        kinds: [KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
         limit,
       })
 
-      events.forEach((evt) => ingestEvent(evt))
+      ingestBatch(events)
       saveToLocalStorage()
-      return events
+      // Deletion notices are applied, never rendered as feed items.
+      return events.filter((evt) => evt && evt.kind !== KINDS.DELETION)
     } catch (err) {
       console.warn('Failed to fetch recent activity feed:', err)
       return []
@@ -395,6 +474,7 @@ export const useMediaStore = defineStore('media', () => {
               KINDS.REVIEW,
               KINDS.ACTIVITY_LOG,
               KINDS.MEDIA_METADATA,
+              KINDS.DELETION,
             ],
             limit: 80,
           },
@@ -403,7 +483,7 @@ export const useMediaStore = defineStore('media', () => {
         4500
       )
 
-      events.forEach((evt) => ingestEvent(evt))
+      ingestBatch(events)
       saveToLocalStorage()
 
       // Aggregate mentions: every relay event counts exactly once, grouped
@@ -425,7 +505,7 @@ export const useMediaStore = defineStore('media', () => {
       }
 
       events.forEach((evt) => {
-        if (!evt || seenEventIds.has(evt.id)) return
+        if (!evt || evt.kind === KINDS.DELETION || seenEventIds.has(evt.id)) return
         seenEventIds.add(evt.id)
         const getTag = (name) => (Array.isArray(evt.tags) ? evt.tags.find((t) => t[0] === name)?.[1] : undefined)
         countMention(getTag('contentid') || getTag('d'), evt.created_at || 0)

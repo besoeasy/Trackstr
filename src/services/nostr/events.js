@@ -298,6 +298,8 @@ export function buildDeletionEvent({ eventId, coordinate, reason = 'Deleted by u
       throw new Error('Deletion coordinate must look like "<kind>:<64-hex pubkey>:<d-tag>".')
     }
     tags.push(['a', coordinate])
+    // NIP-09 k tag: advertises the target kind so relays can match cheaply.
+    tags.push(['k', kind])
   }
 
   return {

@@ -178,6 +178,100 @@ describe('NIP-09 local echo', () => {
   })
 })
 
+describe('inbound NIP-09 deletions', () => {
+  const deletionById = (pubkey, targetId, id = 'del1') => ({
+    id,
+    pubkey,
+    created_at: 3000,
+    kind: 5,
+    tags: [['e', targetId]],
+    content: 'deleted',
+  })
+  const deletionByCoord = (pubkey, coordinate, id = 'del1') => ({
+    id,
+    pubkey,
+    created_at: 3000,
+    kind: 5,
+    tags: [['a', coordinate]],
+    content: 'deleted',
+  })
+
+  it('removes your review when your own e-deletion arrives', async () => {
+    const { media } = setupStores()
+    stubs.queryEvents.mockResolvedValueOnce([
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+    ])
+    await media.syncUserData(OWN)
+    expect(media.getReviewsForMedia(CID)).toHaveLength(1)
+
+    stubs.queryEvents.mockResolvedValueOnce([deletionById(OWN, 'r1')])
+    await media.syncUserData(OWN)
+    expect(media.getReviewsForMedia(CID)).toHaveLength(0)
+  })
+
+  it('ignores forged deletions for somebody else’s records', async () => {
+    const { media } = setupStores()
+    stubs.queryEvents.mockResolvedValueOnce([
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+      statusEvent({ status: 'watching', at: 1000, id: 'e1' }),
+    ])
+    await media.syncUserData(OWN)
+
+    stubs.queryEvents.mockResolvedValueOnce([
+      deletionById(STRANGER, 'r1', 'del1'),
+      deletionByCoord(STRANGER, `35402:${OWN}:${CID}`, 'del2'),
+    ])
+    await media.syncUserData(OWN)
+
+    expect(media.getReviewsForMedia(CID)).toHaveLength(1)
+    expect(media.getMediaStatus(CID)?.status).toBe('watching')
+  })
+
+  it('applies deletions even when they arrive ahead of their target', async () => {
+    const { media } = setupStores()
+    stubs.queryEvents.mockResolvedValueOnce([
+      deletionByCoord(OWN, `35402:${OWN}:${CID}`, 'del1'),
+      statusEvent({ status: 'watching', at: 1000, id: 'e1' }),
+    ])
+    await media.syncUserData(OWN)
+    expect(media.getMediaStatus(CID)).toBeNull()
+  })
+
+  it('clears community metadata only when the deleter owns the winning version', async () => {
+    const { media } = setupStores()
+    stubs.queryEvents.mockResolvedValueOnce([
+      metadataEvent({ pubkey: OWN, at: 1000, id: 'm1', poster: 'ipfs://mine' }),
+    ])
+    await media.syncUserData(OWN)
+    expect(media.getMediaMetadata(CID)?.poster).toBe('ipfs://mine')
+
+    // Stranger's notice for their own (non-winning) version changes nothing.
+    stubs.queryEvents.mockResolvedValueOnce([
+      deletionByCoord(STRANGER, `35403:${STRANGER}:${CID}`, 'del1'),
+    ])
+    await media.syncUserData(OWN)
+    expect(media.getMediaMetadata(CID)?.poster).toBe('ipfs://mine')
+
+    // Your own notice clears it.
+    stubs.queryEvents.mockResolvedValueOnce([
+      deletionByCoord(OWN, `35403:${OWN}:${CID}`, 'del2'),
+    ])
+    await media.syncUserData(OWN)
+    expect(media.getMediaMetadata(CID)).toBeNull()
+  })
+
+  it('never renders deletion notices as feed items', async () => {
+    const { media } = setupStores()
+    stubs.queryEvents.mockResolvedValueOnce([
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+      deletionById(OWN, 'r9', 'del1'),
+    ])
+    const feed = await media.fetchRecentFeed(10)
+    expect(feed.map((e) => e.id).sort()).toEqual(['r1'])
+    expect(media.getReviewsForMedia(CID)).toHaveLength(1)
+  })
+})
+
 describe('Nostr-only popular surface', () => {
   it('excludes provider-cached items without event provenance', async () => {
     const { media } = setupStores()
