@@ -7,8 +7,8 @@ import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import { fetchShowEpisodes } from '@/services/api/tv.js'
 import { computeContentId } from '@/utils/contentId.js'
-import { resolveIpfsUrl } from '@/services/originless.js'
 import MediaCard from '@/components/MediaCard.vue'
+import RecommendationCard from '@/components/RecommendationCard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,11 +30,9 @@ const hasSearched = ref(false)
 const popularItems = ref([])
 const isLoadingPopular = ref(false)
 
-// Personalized Suggestion state (random unwatched movie from Nostr events)
-const suggestion = ref(null)
-const suggestionPool = ref([])
-const isLoadingSuggestion = ref(false)
-const suggestionError = ref('')
+// Personalized Recommendation state (weighted 3-row engine)
+const recommendations = ref({ movies: [], series: [], music: [] })
+const isLoadingRecommendations = ref(false)
 
 let debounceTimer = null
 let searchSeq = 0 // latest search wins; stale responses are discarded
@@ -170,14 +168,14 @@ async function loadPopularFromNostr() {
 }
 
 // ---- Recommendation Engine ----
-// Weighted categories so the suggestion feels like a real recommendation
+// Weighted categories so the recommendations feel like a real recommendation
 // engine: continue-watching episodes rank highest, then popular unwatched
-// movies, then random community picks. Popularity + recency add boost, and
+// items, then random community picks. Popularity + recency add boost, and
 // a jitter term keeps picks from being deterministic.
 const SUGGESTION_WEIGHTS = {
   'missed-episode': 5,
-  'unwatched-movie': 3,
-  'random-movie': 1,
+  unwatched: 3,
+  random: 1,
 }
 
 // A movie counts as "already watched" when the viewer has marked it
@@ -255,7 +253,7 @@ async function buildMissedEpisodeCandidates() {
           })
         }
       } catch (err) {
-        console.warn('Failed to build missed-episode suggestion:', err)
+        console.warn('Failed to build missed-episode recommendation:', err)
       }
     })
   )
@@ -272,130 +270,82 @@ function scoreCandidate(candidate) {
   return base + popularity + recency + jitter
 }
 
-// Weighted random pick — higher-scoring candidates surface more often, but
-// the jitter keeps every shuffle fresh.
-function pickWeightedSuggestion() {
-  const pool = suggestionPool.value
-  if (pool.length === 0) {
-    suggestion.value = null
-    return
-  }
-  const scored = pool.map((c) => ({ c, score: scoreCandidate(c) }))
-  const total = scored.reduce((sum, s) => sum + s.score, 0)
-  let roll = Math.random() * total
-  for (const { c, score } of scored) {
-    roll -= score
-    if (roll <= 0) {
-      suggestion.value = c
-      return
+// Builds a scored, sorted recommendation list for one media type:
+// unwatched popular items (medium weight) + random community picks (low
+// weight, high jitter). Deduplicated and ranked by score.
+async function buildCategoryRecommendations(type) {
+  const popular = await mediaStore.fetchPopularMediaFromEvents({ type, limit: 60 })
+  const pool = []
+
+  const unwatched = popular.filter((item) => !isWatchedByUser(item))
+  const label = type === 'show' ? 'Popular series' : type === 'music' ? 'Popular music' : 'Popular movie'
+  pool.push(
+    ...unwatched.map((item) => ({
+      ...item,
+      category: 'unwatched',
+      reason: label,
+    }))
+  )
+
+  // Random community picks — low weight, high jitter, occasionally a
+  // rewatch nudge for something you've already seen.
+  const randomCount = Math.min(4, popular.length)
+  for (let i = 0; i < randomCount; i++) {
+    const pick = popular[Math.floor(Math.random() * popular.length)]
+    if (pick) {
+      pool.push({
+        ...pick,
+        category: 'random',
+        reason: 'Random pick',
+      })
     }
   }
-  suggestion.value = scored[scored.length - 1].c
+
+  // Deduplicate by contentId (a movie can appear in multiple categories).
+  const seen = new Set()
+  const deduped = pool.filter((c) => {
+    if (!c?.contentId || seen.has(c.contentId)) return false
+    seen.add(c.contentId)
+    return true
+  })
+
+  return deduped
+    .map((c) => ({ ...c, score: scoreCandidate(c) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
 }
 
-// Builds the weighted recommendation pool:
-//  1. Missed episodes of shows you're watching (continue watching)
-//  2. Popular movies on Nostr you haven't watched
-//  3. A few random community picks (even ones you've seen — rewatch nudge)
-async function loadSuggestions() {
-  isLoadingSuggestion.value = true
-  suggestionError.value = ''
+// Builds all three recommendation rows (movies, series, music) in parallel.
+// Missed episodes (continue watching) rank highest in the series row.
+async function loadRecommendations() {
+  isLoadingRecommendations.value = true
   try {
-    const [popular, missedEpisodes] = await Promise.all([
-      mediaStore.fetchPopularMediaFromEvents({ type: 'movie', limit: 60 }),
+    const [movies, series, music, missedEpisodes] = await Promise.all([
+      buildCategoryRecommendations('movie'),
+      buildCategoryRecommendations('show'),
+      buildCategoryRecommendations('music'),
       buildMissedEpisodeCandidates(),
     ])
 
-    const pool = []
-    pool.push(...missedEpisodes)
+    const seriesRow = [...missedEpisodes, ...series]
+      .map((c) => ({ ...c, score: scoreCandidate(c) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
 
-    const unwatched = popular.filter((item) => !isWatchedByUser(item))
-    pool.push(
-      ...unwatched.map((item) => ({
-        ...item,
-        category: 'unwatched-movie',
-        reason: "Popular on Nostr you haven't seen",
-      }))
-    )
-
-    // Random community picks — low weight, high jitter, occasionally a
-    // rewatch nudge for something you've already seen.
-    const randomCount = Math.min(5, popular.length)
-    for (let i = 0; i < randomCount; i++) {
-      const pick = popular[Math.floor(Math.random() * popular.length)]
-      if (pick) {
-        pool.push({
-          ...pick,
-          category: 'random-movie',
-          reason: 'Random pick from the Nostr community',
-        })
-      }
-    }
-
-    // Deduplicate by contentId (a movie can appear in multiple categories).
-    const seen = new Set()
-    suggestionPool.value = pool.filter((c) => {
-      if (!c?.contentId || seen.has(c.contentId)) return false
-      seen.add(c.contentId)
-      return true
-    })
-
-    pickWeightedSuggestion()
+    recommendations.value = { movies, series: seriesRow, music }
   } catch (err) {
-    console.warn('Failed to load suggestions:', err)
-    suggestionError.value = 'Could not load suggestions from Nostr relays.'
+    console.warn('Failed to load recommendations:', err)
   } finally {
-    isLoadingSuggestion.value = false
+    isLoadingRecommendations.value = false
   }
 }
-
-function shuffleSuggestion() {
-  pickWeightedSuggestion()
-}
-
-function openSuggestion() {
-  const item = suggestion.value
-  if (!item?.contentId) return
-  mediaStore.cacheMediaItem(item)
-  router.push({
-    name: 'media-detail',
-    params: { contentId: item.contentId },
-    query: {
-      type: item.type === 'episode' ? 'show' : item.type,
-      title: item.showTitle || item.title || item.name,
-      year: item.year,
-      artist: item.artist,
-    },
-  })
-}
-
-const suggestionTitle = computed(() => {
-  const item = suggestion.value
-  if (!item) return ''
-  if (item.category === 'missed-episode') return item.showTitle || item.title || item.name
-  return item.title || item.name || ''
-})
-
-const suggestionEpisodeLabel = computed(() => {
-  const item = suggestion.value
-  if (!item || item.category !== 'missed-episode') return ''
-  return `S${item.season}E${item.episode}${item.episodeName ? `: ${item.episodeName}` : ''}`
-})
-
-const suggestionPoster = computed(() => {
-  const item = suggestion.value
-  if (!item) return ''
-  if (item.poster) return resolveIpfsUrl(item.poster)
-  const meta = mediaStore.getMediaMetadata(item.contentId)
-  return meta?.poster ? resolveIpfsUrl(meta.poster) : ''
-})
 
 onMounted(async () => {
   if (query.value.trim()) {
     executeSearch()
   }
   loadPopularFromNostr()
-  loadSuggestions()
+  loadRecommendations()
 
   if (route.query.focus === 'search' || route.query.track === 'true') {
     setTimeout(() => {
@@ -428,15 +378,16 @@ watch(
   }
 )
 
-// Keep the suggestion honest: if the viewer just watched/rated the current
-// suggestion (or anything in the pool), drop it and pick a fresh one.
+// Keep recommendations honest: if the viewer just watched/rated something,
+// drop it from its row so it stops being suggested.
 watch(
   () => [mediaStore.statuses, mediaStore.ratings],
   () => {
-    if (suggestionPool.value.length === 0) return
-    suggestionPool.value = suggestionPool.value.filter((item) => !isWatchedByUser(item))
-    if (suggestion.value && isWatchedByUser(suggestion.value)) {
-      pickWeightedSuggestion()
+    const filterRow = (row) => row.filter((item) => !isWatchedByUser(item))
+    recommendations.value = {
+      movies: filterRow(recommendations.value.movies),
+      series: filterRow(recommendations.value.series),
+      music: filterRow(recommendations.value.music),
     }
   },
   { deep: true }
@@ -552,93 +503,8 @@ watch(
       </div>
     </section>
 
-    <!-- CASE 2: DEFAULT HOME VIEW (SUGGESTION + POPULAR ON NOSTR + LIVE FEED) -->
+    <!-- CASE 2: DEFAULT HOME VIEW (POPULAR ON NOSTR + RECOMMENDATIONS) -->
     <template v-else>
-      <!-- Personalized Recommendation (weighted engine) -->
-      <section class="section suggestion-section">
-        <div class="section-header">
-          <div>
-            <div class="title-with-badge">
-              <h2 class="section-title">🎯 Recommended for You</h2>
-              <span class="badge badge-primary nostr-live-tag">⚡ Powered by Nostr</span>
-            </div>
-            <p class="section-subtitle">
-              Continue watching, popular unwatched movies, and random community finds — weighted by your taste
-            </p>
-          </div>
-
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            :disabled="isLoadingSuggestion || suggestionPool.length === 0"
-            @click="shuffleSuggestion"
-          >
-            🎲 Shuffle
-          </button>
-        </div>
-
-        <div v-if="isLoadingSuggestion" class="loading-state">
-          <div class="spinner"></div>
-          <p>Querying Nostr relays and building your recommendations...</p>
-        </div>
-
-        <div v-else-if="suggestion" class="suggestion-card card">
-          <div class="suggestion-poster">
-            <img
-              v-if="suggestionPoster"
-              :src="suggestionPoster"
-              :alt="suggestionTitle"
-              class="suggestion-poster-img"
-              loading="lazy"
-              @error="$event.target.style.display = 'none'"
-            />
-            <div v-else class="suggestion-poster-fallback">🎬</div>
-          </div>
-
-          <div class="suggestion-info">
-            <div class="suggestion-meta">
-              <span class="badge badge-primary suggestion-type-tag">
-                {{ suggestion.category === 'missed-episode' ? 'Continue Watching' : suggestion.type }}
-              </span>
-              <span v-if="suggestion.category === 'missed-episode'" class="suggestion-episode-tag">
-                S{{ suggestion.season }}E{{ suggestion.episode }}
-              </span>
-              <span v-if="suggestion.year" class="suggestion-year">{{ suggestion.year }}</span>
-              <span v-if="suggestion.nostrEventCount" class="suggestion-stats">
-                ⚡ {{ suggestion.nostrEventCount }} Nostr event{{ suggestion.nostrEventCount === 1 ? '' : 's' }}
-              </span>
-            </div>
-
-            <h3 class="suggestion-title">{{ suggestionTitle }}</h3>
-            <p v-if="suggestionEpisodeLabel" class="suggestion-episode-label">{{ suggestionEpisodeLabel }}</p>
-            <p v-if="suggestion.overview" class="suggestion-overview">{{ suggestion.overview }}</p>
-            <p v-if="suggestion.reason" class="suggestion-reason">{{ suggestion.reason }}</p>
-
-            <div class="suggestion-actions">
-              <button class="btn btn-primary" type="button" @click="openSuggestion">
-                {{ suggestion.category === 'missed-episode' ? '▶ Watch Episode' : '▶ Track This Movie' }}
-              </button>
-              <button
-                class="btn btn-outline btn-sm"
-                type="button"
-                :disabled="suggestionPool.length <= 1"
-                @click="shuffleSuggestion"
-              >
-                🎲 Another
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div v-else class="empty-feed card">
-          <div class="empty-icon">🎲</div>
-          <p v-if="suggestionError">{{ suggestionError }}</p>
-          <p v-else-if="popularItems.length > 0">You've watched everything on the connected relays! 🎉</p>
-          <p v-else>No media tracked on connected Nostr relays yet.</p>
-          <p class="form-hint">Search for a movie above and track it — or wait for the community to add more!</p>
-        </div>
-      </section>
-
       <!-- Popular & Featured Titles on Nostr -->
       <section class="section">
         <div class="section-header">
@@ -680,6 +546,79 @@ watch(
             :media="item"
           />
         </div>
+      </section>
+
+      <!-- Recommended for You (3 rows: movies, series, music) -->
+      <section class="section recommendations-section">
+        <div class="section-header">
+          <div>
+            <div class="title-with-badge">
+              <h2 class="section-title">🎯 Recommended for You</h2>
+              <span class="badge badge-primary nostr-live-tag">⚡ Powered by Nostr</span>
+            </div>
+            <p class="section-subtitle">
+              Personalized picks weighted by your taste — continue watching, popular, and random finds
+            </p>
+          </div>
+
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            :disabled="isLoadingRecommendations"
+            @click="loadRecommendations"
+          >
+            {{ isLoadingRecommendations ? 'Refreshing...' : '🎲 Refresh Picks' }}
+          </button>
+        </div>
+
+        <div v-if="isLoadingRecommendations" class="loading-state">
+          <div class="spinner"></div>
+          <p>Building your recommendations from Nostr relays...</p>
+        </div>
+
+        <template v-else>
+          <div v-if="recommendations.movies.length" class="recommendation-row">
+            <h3 class="recommendation-row-title">🎬 Movies</h3>
+            <div class="recommendation-scroll">
+              <RecommendationCard
+                v-for="item in recommendations.movies"
+                :key="item.contentId"
+                :item="item"
+              />
+            </div>
+          </div>
+
+          <div v-if="recommendations.series.length" class="recommendation-row">
+            <h3 class="recommendation-row-title">📺 Series</h3>
+            <div class="recommendation-scroll">
+              <RecommendationCard
+                v-for="item in recommendations.series"
+                :key="`${item.contentId}:s${item.season || 0}e${item.episode || 0}`"
+                :item="item"
+              />
+            </div>
+          </div>
+
+          <div v-if="recommendations.music.length" class="recommendation-row">
+            <h3 class="recommendation-row-title">🎵 Music</h3>
+            <div class="recommendation-scroll">
+              <RecommendationCard
+                v-for="item in recommendations.music"
+                :key="item.contentId"
+                :item="item"
+              />
+            </div>
+          </div>
+
+          <div
+            v-if="!recommendations.movies.length && !recommendations.series.length && !recommendations.music.length"
+            class="empty-feed card"
+          >
+            <div class="empty-icon">🎯</div>
+            <p>No recommendations available yet.</p>
+            <p class="form-hint">Track media or wait for the community to add more on Nostr!</p>
+          </div>
+        </template>
       </section>
     </template>
   </div>
@@ -949,141 +888,46 @@ watch(
   margin: 0 auto;
 }
 
-/* Personalized Suggestion Card */
-.suggestion-card {
+/* Recommended for You (3 rows) */
+.recommendation-row {
+  margin-bottom: 28px;
+}
+
+.recommendation-row:last-child {
+  margin-bottom: 0;
+}
+
+.recommendation-row-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.recommendation-scroll {
   display: flex;
-  gap: 24px;
-  padding: 20px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  overflow: hidden;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
 }
 
-.suggestion-poster {
-  flex-shrink: 0;
-  width: 180px;
-  aspect-ratio: 2 / 3;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: #0c0c0c;
-  border: 1px solid var(--border-subtle);
+.recommendation-scroll::-webkit-scrollbar {
+  height: 6px;
 }
 
-.suggestion-poster-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.suggestion-poster-fallback {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3rem;
-  opacity: 0.5;
-}
-
-.suggestion-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.suggestion-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.suggestion-type-tag {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.suggestion-episode-tag {
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-  color: var(--accent-emerald);
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  padding: 2px 8px;
+.recommendation-scroll::-webkit-scrollbar-thumb {
+  background: #262626;
   border-radius: var(--radius-full);
 }
 
-.suggestion-year {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
+.recommendation-scroll::-webkit-scrollbar-thumb:hover {
+  background: #444444;
 }
 
-.suggestion-stats {
-  font-size: 0.75rem;
-  color: var(--accent-emerald);
-  font-family: var(--font-mono);
-}
-
-.suggestion-title {
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  color: var(--text-main);
-}
-
-.suggestion-episode-label {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--accent-emerald);
-  letter-spacing: -0.01em;
-}
-
-.suggestion-reason {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  letter-spacing: 0.02em;
-}
-
-.suggestion-overview {
-  font-size: 0.92rem;
-  color: var(--text-secondary);
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.suggestion-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: auto;
-  padding-top: 8px;
-}
-
-@media (max-width: 640px) {
-  .suggestion-card {
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .suggestion-poster {
-    width: 100%;
-    max-width: 220px;
-    margin: 0 auto;
-  }
-
-  .suggestion-title {
-    font-size: 1.3rem;
-  }
+.recommendation-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>
