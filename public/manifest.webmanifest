@@ -1,0 +1,16 @@
+{
+  "name": "Trackstr — Open-Source Media Tracker",
+  "short_name": "Trackstr",
+  "description": "Open-source Letterboxd + Trakt + Last.fm alternative. Track movies, TV shows & music — ratings, reviews, watchlists & scrobbles you own on Nostr + IPFS.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
