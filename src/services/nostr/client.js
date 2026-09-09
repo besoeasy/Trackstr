@@ -1,13 +1,14 @@
 /**
  * Nostr Client Service
- * Manages relay pool connections, event subscription, querying, and NIP-07 signing.
- * Includes comprehensive debug logging for extension detection and troubleshooting.
+ * Manages relay pool connections, event subscription, querying, and signing
+ * via a local nsec signer or NIP-07 extension.
+ * Includes comprehensive debug logging for signer detection and troubleshooting.
  */
 import { SimplePool } from 'nostr-tools/pool'
 import { nip19 } from 'nostr-tools'
 import { getRelays } from './relays.js'
 import { logger } from '@/utils/logger.js'
-import { bunkerService } from './bunker.js'
+import { localSigner } from './localSigner.js'
 
 class NostrClient {
   constructor() {
@@ -74,17 +75,17 @@ class NostrClient {
       documentReady: document.readyState,
       activeRelays: this.getRelays(),
       location: window.location.href,
-      bunkerConnected: bunkerService.isConnected(),
-      bunkerPointer: bunkerService.getBunkerPointer(),
+      localSignerConnected: localSigner.isConnected(),
+      localSignerPubkey: localSigner.isConnected() ? localSigner.getPublicKey() : null,
     }
   }
 
   /**
-   * Checks whether any signing method (Bunker or NIP-07 extension) is active
+   * Checks whether any signing method (local nsec or NIP-07 extension) is active
    * @returns {boolean}
    */
   hasSigner() {
-    return bunkerService.isConnected() || this.hasExtension()
+    return localSigner.isConnected() || this.hasExtension()
   }
 
   /**
@@ -245,29 +246,29 @@ class NostrClient {
   }
 
   /**
-   * Retrieves user's public key from either active Bunker or browser extension
+   * Retrieves user's public key from either the local nsec signer or browser extension
    * @returns {Promise<string>}
    */
   async getPublicKey() {
-    if (bunkerService.isConnected()) {
-      return await bunkerService.getPublicKey()
+    if (localSigner.isConnected()) {
+      return localSigner.getPublicKey()
     }
     return await this.getPublicKeyFromExtension()
   }
 
   /**
-   * Signs an event using NIP-07 extension or NIP-46 Bunker
+   * Signs an event using the local nsec signer or NIP-07 extension
    * @param {Object} eventTemplate Unsigned event
    * @returns {Promise<Object>} Signed event with id, pubkey, sig
    */
   async signEvent(eventTemplate) {
-    // If Bunker signer is active, delegate directly to BunkerService
-    if (bunkerService.isConnected()) {
-      return await bunkerService.signEvent(eventTemplate)
+    // If a local nsec signer is active, sign directly in the browser
+    if (localSigner.isConnected()) {
+      return await localSigner.signEvent(eventTemplate)
     }
 
     if (!this.hasExtension() || typeof window.nostr.signEvent !== 'function') {
-      const msg = 'No Nostr browser extension or Bunker signer available for signing.'
+      const msg = 'No local nsec account or Nostr browser extension available for signing.'
       logger.error('NostrClient', msg)
       throw new Error(msg)
     }
