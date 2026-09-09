@@ -5,7 +5,6 @@ import { useMediaStore } from '@/stores/media.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import { computeContentId } from '@/utils/contentId.js'
-import { formatRelativeTime } from '@/utils/formatters.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
 import MediaCard from '@/components/MediaCard.vue'
 
@@ -27,8 +26,6 @@ const hasSearched = ref(false)
 // Nostr Popular & Featured state
 const popularItems = ref([])
 const isLoadingPopular = ref(false)
-const recentFeed = ref([])
-const isLoadingFeed = ref(false)
 
 // Personalized Suggestion state (random unwatched movie from Nostr events)
 const suggestion = ref(null)
@@ -169,18 +166,6 @@ async function loadPopularFromNostr() {
   }
 }
 
-// Load live activity feed from Nostr relays
-async function loadFeed() {
-  isLoadingFeed.value = true
-  try {
-    recentFeed.value = await mediaStore.fetchRecentFeed(20)
-  } catch (err) {
-    console.warn('Feed load failed:', err)
-  } finally {
-    isLoadingFeed.value = false
-  }
-}
-
 // A movie counts as "already watched" when the viewer has marked it
 // completed/watching or rated it — those are the states that mean "seen".
 function isWatchedByUser(item) {
@@ -256,7 +241,6 @@ onMounted(async () => {
     executeSearch()
   }
   loadPopularFromNostr()
-  loadFeed()
   loadSuggestions()
 
   if (route.query.focus === 'search' || route.query.track === 'true') {
@@ -536,53 +520,6 @@ watch(
           />
         </div>
       </section>
-
-      <!-- Recent Nostr Activity Feed -->
-      <section class="section">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Recent Activity Feed</h2>
-            <p class="section-subtitle">Real-time check-ins and reviews across configured relays</p>
-          </div>
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            :disabled="isLoadingFeed"
-            @click="loadFeed"
-          >
-            {{ isLoadingFeed ? 'Refreshing...' : '🔄 Refresh Feed' }}
-          </button>
-        </div>
-
-        <div v-if="isLoadingFeed" class="empty-feed">
-          <p>Connecting to Nostr relays and loading activity...</p>
-        </div>
-
-        <div v-else-if="recentFeed.length === 0" class="empty-feed card">
-          <p>No recent activity received yet on the active relays.</p>
-          <p class="form-hint">Connect your extension and track a movie or album to create the first entry!</p>
-        </div>
-
-        <div v-else class="activity-feed-grid">
-          <div v-for="act in recentFeed" :key="act.id" class="activity-feed-card card">
-            <div class="activity-card-header">
-              <span class="activity-author contentid-chip">
-                {{ (act.pubkey || '').slice(0, 8) }}...{{ (act.pubkey || '').slice(-4) }}
-              </span>
-              <span class="activity-time">{{ formatRelativeTime(act.created_at) }}</span>
-            </div>
-
-            <div class="activity-body">
-              <div class="activity-badge-row">
-                <span v-if="act.kind === 5401" class="badge badge-info">Review</span>
-                <span v-else-if="act.kind === 5402" class="badge badge-success">Check-in</span>
-                <span class="activity-media-name">{{ (act.tags || []).find((t) => t[0] === 'name')?.[1] || 'Media' }}</span>
-              </div>
-              <p v-if="act.content" class="activity-content-text">{{ act.content }}</p>
-            </div>
-          </div>
-        </div>
-      </section>
     </template>
   </div>
 </template>
@@ -849,57 +786,6 @@ watch(
   background: var(--bg-surface);
   max-width: 560px;
   margin: 0 auto;
-}
-
-.activity-feed-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 18px;
-}
-
-.activity-feed-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  transition: border-color var(--transition-fast);
-}
-
-.activity-feed-card:hover {
-  border-color: var(--border-hover);
-}
-
-.activity-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.activity-time {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.activity-badge-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.activity-media-name {
-  font-weight: 600;
-  font-size: 0.95rem;
-  letter-spacing: -0.02em;
-}
-
-.activity-content-text {
-  font-size: 0.88rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
 }
 
 /* Personalized Suggestion Card */
