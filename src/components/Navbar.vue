@@ -4,10 +4,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useSettingsStore } from '@/stores/settings.js'
 import { safeMediaUrl } from '@/utils/urls.js'
-import SettingsModal from './SettingsModal.vue'
-import DebugModal from './DebugModal.vue'
-import LoginModal from './LoginModal.vue'
-import AddMediaModal from './AddMediaModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -17,17 +13,14 @@ const settingsStore = useSettingsStore()
 // Kind-0 picture URLs are attacker-controlled relay data — render only if safe.
 const safeAvatar = computed(() => safeMediaUrl(authStore.avatarUrl))
 
-const showSettings = ref(false)
-const showDebug = ref(false)
 const showUserMenu = ref(false)
-const showAddMediaModal = ref(false)
 
 function handleTrack() {
-  showAddMediaModal.value = true
+  router.push('/track')
 }
 
 function handleLogin() {
-  authStore.openLoginModal()
+  router.push('/connect')
 }
 
 function handleLogout() {
@@ -59,14 +52,14 @@ function handleLogout() {
 
       <div class="nav-actions">
         <!-- Debug Diagnostics (desktop) -->
-        <button
+        <!-- Debug Diagnostics (desktop) -->
+        <router-link
+          to="/diagnostics"
           class="btn btn-icon btn-desktop-only"
-          type="button"
           title="Extension & Network Diagnostics (Debug Logs)"
-          @click="showDebug = true"
         >
           <span style="font-size: 13px;">🐞</span>
-        </button>
+        </router-link>
 
         <!-- Theme toggle (always available) -->
         <button
@@ -80,36 +73,32 @@ function handleLogout() {
         </button>
 
         <!-- Settings (desktop) -->
-        <button
+        <router-link
+          to="/settings"
           class="btn btn-icon btn-desktop-only"
-          type="button"
           title="Network & Settings"
-          @click="showSettings = true"
         >
           <span style="font-size: 13px;">⚙️</span>
-        </button>
+        </router-link>
 
         <!-- Track Media (desktop) -->
-        <button
+        <router-link
+          to="/track"
           class="btn btn-primary btn-sm btn-desktop-only"
-          type="button"
           title="Track Movie, Series, or Music"
-          @click="handleTrack"
         >
           <span>+ Track</span>
-        </button>
+        </router-link>
 
         <!-- Nostr Auth (Extension or Bunker) -->
         <template v-if="!authStore.isAuthenticated">
-          <button
+          <router-link
+            to="/connect"
             class="btn btn-secondary btn-sm btn-auth"
-            type="button"
-            :disabled="authStore.isLoggingIn"
-            @click="handleLogin"
           >
             <span class="btn-auth-dot">●</span>
             <span class="btn-auth-text">{{ authStore.isLoggingIn ? 'Connecting...' : 'Connect' }}</span>
-          </button>
+          </router-link>
         </template>
 
         <template v-else>
@@ -145,12 +134,12 @@ function handleLogout() {
               <router-link to="/library" class="dropdown-item" @click="showUserMenu = false">
                 📚 My Library
               </router-link>
-              <button class="dropdown-item" type="button" @click="showSettings = true; showUserMenu = false">
+              <router-link to="/settings" class="dropdown-item" @click="showUserMenu = false">
                 ⚙️ Settings & Relays
-              </button>
-              <button class="dropdown-item" type="button" @click="showDebug = true; showUserMenu = false">
+              </router-link>
+              <router-link to="/diagnostics" class="dropdown-item" @click="showUserMenu = false">
                 🐞 Diagnostics Logs
-              </button>
+              </router-link>
               <button class="dropdown-item dropdown-logout" type="button" @click="handleLogout">
                 🚪 Log Out
               </button>
@@ -181,27 +170,27 @@ function handleLogout() {
       <span class="mobile-nav-icon">📚</span>
       <span>Library</span>
     </router-link>
-    <button
+    <router-link
       v-else
-      type="button"
+      to="/connect?returnTo=/library"
       class="mobile-nav-item"
-      @click="authStore.openLoginModal"
+      :class="{ 'is-active': route.path === '/connect' }"
     >
       <span class="mobile-nav-icon">📚</span>
       <span>Library</span>
-    </button>
+    </router-link>
 
-    <button
-      type="button"
+    <router-link
+      to="/track"
       class="mobile-nav-item is-track-btn"
+      :class="{ 'is-active': route.path === '/track' }"
       title="Track media"
-      @click="handleTrack"
     >
       <div class="mobile-nav-icon-wrap">
         <span>+</span>
       </div>
       <span>Track</span>
-    </button>
+    </router-link>
 
     <router-link
       to="/activity"
@@ -212,29 +201,16 @@ function handleLogout() {
       <span>Activity</span>
     </router-link>
 
-    <button
-      type="button"
+    <router-link
+      to="/settings"
       class="mobile-nav-item"
+      :class="{ 'is-active': route.path === '/settings' }"
       title="Settings & Network"
-      @click="showSettings = true"
     >
       <span class="mobile-nav-icon">⚙️</span>
       <span>Settings</span>
-    </button>
+    </router-link>
   </nav>
-
-  <LoginModal
-    v-if="authStore.showLoginModal"
-    @close="authStore.closeLoginModal"
-    @open-debug="showDebug = true"
-  />
-  <AddMediaModal
-    v-if="showAddMediaModal"
-    @close="showAddMediaModal = false"
-    @saved="showAddMediaModal = false"
-  />
-  <SettingsModal v-if="showSettings" @close="showSettings = false" />
-  <DebugModal v-if="showDebug" @close="showDebug = false" />
 </template>
 
 <style scoped>

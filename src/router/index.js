@@ -1,8 +1,14 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, createMemoryHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import MediaDetailView from '@/views/MediaDetailView.vue'
 import LibraryView from '@/views/LibraryView.vue'
 import ActivityView from '@/views/ActivityView.vue'
+import ConnectView from '@/views/ConnectView.vue'
+import SettingsView from '@/views/SettingsView.vue'
+import DebugView from '@/views/DebugView.vue'
+import TrackMediaView from '@/views/TrackMediaView.vue'
+import WriteReviewView from '@/views/WriteReviewView.vue'
+import SeedMetadataView from '@/views/SeedMetadataView.vue'
 
 const routes = [
   {
@@ -14,6 +20,39 @@ const routes = [
     path: '/search',
     name: 'search',
     component: HomeView,
+  },
+  {
+    path: '/connect',
+    name: 'connect',
+    alias: '/login',
+    component: ConnectView,
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: SettingsView,
+  },
+  {
+    path: '/diagnostics',
+    name: 'diagnostics',
+    alias: '/debug',
+    component: DebugView,
+  },
+  {
+    path: '/track',
+    name: 'track',
+    alias: '/add',
+    component: TrackMediaView,
+  },
+  {
+    path: '/media/:contentId/review',
+    name: 'write-review',
+    component: WriteReviewView,
+  },
+  {
+    path: '/media/:contentId/seed',
+    name: 'seed-metadata',
+    component: SeedMetadataView,
   },
   {
     path: '/media/:contentId',
@@ -38,7 +77,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: typeof window !== 'undefined' ? createWebHistory(import.meta.env.BASE_URL) : createMemoryHistory(),
   routes,
   scrollBehavior() {
     return { top: 0 }

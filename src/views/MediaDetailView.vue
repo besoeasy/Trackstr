@@ -10,8 +10,6 @@ import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/f
 import { getTmdbDetails } from '@/services/api/tmdb.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
-import ReviewModal from '@/components/ReviewModal.vue'
-import SeedMetadataModal from '@/components/SeedMetadataModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,8 +41,6 @@ const media = ref({
   sources: [],
 })
 
-const showReviewModal = ref(false)
-const showSeedModal = ref(false)
 const copied = ref(false)
 
 // Inline check-in / scrobble panel state
@@ -200,10 +196,19 @@ async function handleRatingChange(newRating) {
 
 function openReviewModal() {
   if (!authStore.isAuthenticated) {
-    authStore.openLoginModal()
+    authStore.openLoginModal(`/media/${contentId.value}/review`)
     return
   }
-  showReviewModal.value = true
+  router.push({
+    name: 'write-review',
+    params: { contentId: contentId.value },
+    query: {
+      title: media.value.title || media.value.name,
+      year: media.value.year,
+      type: media.value.type,
+      artist: media.value.artist,
+    },
+  })
 }
 
 function openCheckInModal() {
@@ -254,10 +259,19 @@ async function submitCheckIn() {
 
 function openSeedModal() {
   if (!authStore.isAuthenticated) {
-    authStore.openLoginModal()
+    authStore.openLoginModal(`/media/${contentId.value}/seed`)
     return
   }
-  showSeedModal.value = true
+  router.push({
+    name: 'seed-metadata',
+    params: { contentId: contentId.value },
+    query: {
+      title: media.value.title || media.value.name,
+      year: media.value.year,
+      type: media.value.type,
+      artist: media.value.artist,
+    },
+  })
 }
 
 function copyContentId() {
@@ -569,20 +583,6 @@ function goBack() {
         </div>
       </div>
     </div>
-
-    <!-- Modals -->
-    <ReviewModal
-      v-if="showReviewModal"
-      :media="media"
-      :initial-rating="userRating"
-      @close="showReviewModal = false"
-    />
-
-    <SeedMetadataModal
-      v-if="showSeedModal"
-      :media="media"
-      @close="showSeedModal = false"
-    />
   </div>
 </template>
 

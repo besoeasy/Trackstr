@@ -63,8 +63,17 @@ export const useAuthStore = defineStore('auth', () => {
     return diagnostics.value
   }
 
-  function openLoginModal() {
+  async function openLoginModal(returnTo) {
     showLoginModal.value = true
+    if (typeof window !== 'undefined') {
+      try {
+        const { default: router } = await import('@/router/index.js')
+        const query = returnTo ? { returnTo } : {}
+        router.push({ path: '/connect', query }).catch(() => {})
+      } catch {
+        // Fallback in test/headless environments
+      }
+    }
   }
 
   function closeLoginModal() {

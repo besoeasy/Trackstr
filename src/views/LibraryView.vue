@@ -141,9 +141,9 @@ function navigateToItem(contentId, media) {
     <div v-if="!authStore.isAuthenticated" class="auth-banner card">
       <h2>Connect your Nostr Account</h2>
       <p>Connect your browser extension or Bunker remote signer to view and manage your library across relays.</p>
-      <button class="btn btn-primary" type="button" @click="authStore.openLoginModal">
+      <router-link to="/connect?returnTo=/library" class="btn btn-primary">
         ⚡ Connect Nostr
-      </button>
+      </router-link>
     </div>
 
     <template v-else>
