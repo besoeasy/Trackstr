@@ -8,12 +8,13 @@ import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { formatRelativeTime } from '@/utils/formatters.js'
 import MediaCard from '@/components/MediaCard.vue'
-import AddMediaModal from '@/components/AddMediaModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
+
+const searchInputRef = ref(null)
 
 // Search state - strictly category based (no global search)
 const validTabs = ['movies', 'shows', 'music']
@@ -23,7 +24,6 @@ const activeTab = ref(initialTab) // 'movies' | 'shows' | 'music'
 const isSearching = ref(false)
 const searchResults = ref([])
 const hasSearched = ref(false)
-const showAddModal = ref(false)
 
 // Nostr Popular & Featured state
 const popularItems = ref([])
@@ -170,7 +170,22 @@ onMounted(async () => {
   }
   loadPopularFromNostr()
   loadFeed()
+
+  if (route.query.focus === 'search' || route.query.track === 'true') {
+    setTimeout(() => {
+      searchInputRef.value?.focus()
+    }, 150)
+  }
 })
+
+watch(
+  () => [route.query.focus, route.query.track],
+  () => {
+    if (route.query.focus === 'search' || route.query.track === 'true') {
+      searchInputRef.value?.focus()
+    }
+  }
+)
 
 watch(
   () => route.query.q,
@@ -199,11 +214,12 @@ watch(
           Select a category (movie, series, music) to search without name collisions, or explore popular media and scrobbles on Nostr.
         </p>
 
-        <!-- Search Bar with Actions -->
+        <!-- Fluid Search Bar -->
         <div class="search-box-wrap">
           <div class="search-input-group">
             <span class="search-icon">🔍</span>
             <input
+              ref="searchInputRef"
               v-model="query"
               type="search"
               class="input search-input"
@@ -221,15 +237,6 @@ watch(
               ✕
             </button>
           </div>
-
-          <button
-            class="btn btn-primary btn-track-quick"
-            type="button"
-            title="Track Movie, Series, or Music by canonical fields"
-            @click="showAddModal = true"
-          >
-            <span>+</span> Track (Minimal)
-          </button>
         </div>
 
         <!-- Strict Category Tabs (No Global Search) -->
@@ -291,11 +298,9 @@ watch(
       </div>
 
       <div v-else-if="searchResults.length === 0 && hasSearched" class="empty-state card">
-        <h3>No matches found</h3>
-        <p>Try refining your search terms or track manually with the minimal 3-card form.</p>
-        <button class="btn btn-primary btn-sm" type="button" @click="showAddModal = true">
-          + Track Manually
-        </button>
+        <div class="empty-icon">🔍</div>
+        <h3>No {{ activeTab }} found for "{{ query }}"</h3>
+        <p>Try refining your query or switch categories above. Click any result to view its showcase page and track it on Nostr.</p>
       </div>
 
       <div v-else class="grid grid-media">
@@ -338,10 +343,9 @@ watch(
         </div>
 
         <div v-else-if="popularItems.length === 0" class="empty-feed card">
+          <div class="empty-icon">⚡</div>
           <p>No media tracked on connected Nostr relays yet.</p>
-          <button class="btn btn-primary btn-sm" type="button" @click="showAddModal = true">
-            + Be the first to track a title
-          </button>
+          <p class="form-hint">Search for your favorite movie, show, or artist above to open its showcase page and track it!</p>
         </div>
 
         <div v-else class="grid grid-media">
@@ -425,114 +429,181 @@ watch(
         </div>
       </section>
     </template>
-
-    <AddMediaModal v-if="showAddModal" @close="showAddModal = false" @saved="loadPopularFromNostr" />
   </div>
 </template>
 
 <style scoped>
 .hero-search-section {
-  padding: 36px 0 28px;
+  padding: 44px 0 32px;
   text-align: center;
   position: relative;
-  max-width: 820px;
+  max-width: 860px;
   margin: 0 auto;
+  animation: heroEntrance 0.6s var(--ease-spring) both;
+}
+
+@keyframes heroEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .hero-badge {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+  animation: badgeFloat 4s ease-in-out infinite alternate;
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.35);
+}
+
+@keyframes badgeFloat {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-4px);
+  }
 }
 
 .hero-title {
-  font-size: 2.6rem;
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
   font-weight: 800;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
-  margin-bottom: 12px;
-  background: linear-gradient(135deg, #ffffff 40%, var(--primary) 100%);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, #ffffff 40%, var(--primary) 90%, #ec4899 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 40px rgba(139, 92, 246, 0.2);
 }
 
 [data-theme='light'] .hero-title {
-  background: linear-gradient(135deg, #0f172a 40%, var(--primary) 100%);
+  background: linear-gradient(135deg, #0f172a 40%, var(--primary) 90%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .hero-subtitle {
-  font-size: 1.05rem;
+  font-size: clamp(0.95rem, 2vw, 1.08rem);
   color: var(--text-secondary);
-  max-width: 620px;
-  margin: 0 auto 24px;
-  line-height: 1.5;
+  max-width: 650px;
+  margin: 0 auto 28px;
+  line-height: 1.55;
 }
 
-/* Search Box & Quick Track */
+/* Fluid Centered Search Bar */
 .search-box-wrap {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-  align-items: center;
-}
-
-@media (max-width: 640px) {
-  .search-box-wrap {
-    flex-direction: column;
-  }
+  justify-content: center;
+  margin: 0 auto 24px;
+  max-width: 720px;
+  width: 100%;
 }
 
 .search-input-group {
   position: relative;
-  flex: 1;
   width: 100%;
 }
 
 .search-icon {
   position: absolute;
-  left: 16px;
+  left: 18px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  pointer-events: none;
+  transition: transform 0.25s var(--ease-spring);
+}
+
+.search-input-group:focus-within .search-icon {
+  transform: translateY(-50%) scale(1.18);
+  color: var(--primary);
 }
 
 .search-input {
-  padding: 14px 44px 14px 48px;
-  font-size: 1.05rem;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  padding: 16px 50px 16px 52px;
+  font-size: 1.08rem;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hover);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   width: 100%;
+  transition: border-color 0.3s ease, box-shadow 0.3s var(--ease-spring), transform 0.3s var(--ease-spring);
+}
+
+.search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light), 0 8px 32px rgba(139, 92, 246, 0.3);
+  transform: scale(1.01);
 }
 
 .clear-search-btn {
   position: absolute;
-  right: 14px;
+  right: 16px;
   top: 50%;
   transform: translateY(-50%);
-  background: none;
-  border: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
-  padding: 4px;
+  font-size: 0.82rem;
+  transition: all 0.2s var(--ease-spring);
 }
 
 .clear-search-btn:hover {
   color: var(--text-main);
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-50%) scale(1.15);
 }
 
-.btn-track-quick {
-  white-space: nowrap;
-  padding: 14px 20px;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
+/* Category Tabs with Animated Pill Feedback */
 .search-tabs {
   justify-content: center;
-  margin-bottom: 8px;
+  border-bottom: none;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 6px;
+  background: rgba(16, 20, 32, 0.55);
+  backdrop-filter: blur(12px);
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+}
+
+.search-tabs .tab-btn {
+  padding: 8px 20px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  border: none;
+  transition: all 0.25s var(--ease-spring);
+  color: var(--text-secondary);
+}
+
+.search-tabs .tab-btn:hover {
+  color: var(--text-main);
+  transform: translateY(-2px);
+}
+
+.search-tabs .tab-btn:active {
+  transform: scale(0.95);
+}
+
+.search-tabs .tab-btn.is-active {
+  background: linear-gradient(135deg, var(--primary), #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 4px 18px var(--primary-glow);
+  transform: scale(1.03);
 }
 
 .title-with-badge {
@@ -543,7 +614,22 @@ watch(
 
 .nostr-live-tag {
   font-size: 0.72rem;
-  animation: pulse 1.5s infinite alternate;
+  animation: livePulse 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes livePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(139, 92, 246, 0.4);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+    transform: scale(1);
+  }
 }
 
 .results-count {
@@ -560,14 +646,32 @@ watch(
   color: var(--text-secondary);
 }
 
+.empty-state {
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 520px;
+  margin: 20px auto;
+  border: 1px dashed var(--border-hover);
+  background: var(--bg-surface);
+}
+
+.empty-icon {
+  font-size: 2.2rem;
+}
+
 .spinner {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: 3px solid var(--border-hover);
   border-top-color: var(--primary);
   border-radius: 50%;
-  margin: 0 auto 12px;
+  margin: 0 auto 14px;
   animation: spin 0.7s linear infinite;
+  box-shadow: 0 0 16px var(--primary-glow);
 }
 
 @keyframes spin {
@@ -576,91 +680,128 @@ watch(
   }
 }
 
-@keyframes pulse {
-  from {
-    opacity: 0.8;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
+/* Architecture Cards with 3D Hover Lift */
 .arch-banner {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
-  margin: 32px 0 48px;
+  margin: 36px 0 54px;
   background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
 }
 
-@media (max-width: 800px) {
+@media (max-width: 840px) {
   .arch-banner {
     grid-template-columns: 1fr;
+    gap: 18px;
   }
 }
 
 .arch-col {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 16px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  transition: transform 0.3s var(--ease-spring), background 0.3s ease, box-shadow 0.3s var(--ease-spring);
+}
+
+.arch-col:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .arch-icon {
-  font-size: 1.8rem;
+  font-size: 2rem;
   line-height: 1;
+  animation: iconFloat 4s ease-in-out infinite alternate;
+}
+
+.arch-col:nth-child(2) .arch-icon {
+  animation-delay: 1.2s;
+}
+
+.arch-col:nth-child(3) .arch-icon {
+  animation-delay: 2.4s;
+}
+
+@keyframes iconFloat {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-5px);
+  }
 }
 
 .arch-info h4 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  margin-bottom: 5px;
+  color: var(--text-main);
 }
 
 .arch-info p {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .section {
-  margin-bottom: 48px;
+  margin-bottom: 52px;
 }
 
 .section-header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .section-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
 
 .section-subtitle {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .empty-feed {
-  padding: 32px;
+  padding: 36px 20px;
   text-align: center;
   color: var(--text-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-surface);
+  max-width: 560px;
+  margin: 0 auto;
 }
 
 .activity-feed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  gap: 18px;
 }
 
 .activity-feed-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition: transform 0.3s var(--ease-spring), border-color 0.25s ease, box-shadow 0.3s var(--ease-spring);
+}
+
+.activity-feed-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-hover);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4), 0 0 16px var(--primary-light);
 }
 
 .activity-card-header {
@@ -682,13 +823,13 @@ watch(
 }
 
 .activity-media-name {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 700;
+  font-size: 0.96rem;
 }
 
 .activity-content-text {
   font-size: 0.88rem;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 </style>

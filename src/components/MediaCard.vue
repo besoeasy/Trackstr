@@ -110,7 +110,19 @@ function navigateToDetail() {
   bottom: 8px;
   right: 8px;
   z-index: 2;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  animation: popIn 0.3s var(--ease-spring);
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .media-artist {
@@ -127,12 +139,23 @@ function navigateToDetail() {
   z-index: 2;
   font-size: 0.72rem;
   font-weight: 700;
-  background: rgba(15, 17, 26, 0.85);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 17, 26, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--accent-amber);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  padding: 2px 6px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 2px 7px;
   border-radius: var(--radius-xs);
+  transition: transform 0.2s var(--ease-spring);
+}
+
+.media-card:hover .card-vote-badge {
+  transform: scale(1.08);
+}
+
+.media-card:hover .media-title {
+  color: var(--primary);
+  transition: color 0.2s ease;
 }
 
 .card-sources {
@@ -143,10 +166,16 @@ function navigateToDetail() {
 
 .source-chip {
   font-size: 0.65rem;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: var(--bg-surface);
   color: var(--accent-sky);
   border: 1px solid var(--border-subtle);
+  transition: transform 0.2s var(--ease-spring), border-color 0.2s ease;
+}
+
+.media-card:hover .source-chip {
+  border-color: rgba(14, 165, 233, 0.35);
+  transform: translateY(-1px);
 }
 </style>

@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useSettingsStore } from '@/stores/settings.js'
 import SettingsModal from './SettingsModal.vue'
 import DebugModal from './DebugModal.vue'
-import AddMediaModal from './AddMediaModal.vue'
 import LoginModal from './LoginModal.vue'
 
 const router = useRouter()
@@ -14,8 +13,11 @@ const settingsStore = useSettingsStore()
 
 const showSettings = ref(false)
 const showDebug = ref(false)
-const showAddMedia = ref(false)
 const showUserMenu = ref(false)
+
+function handleTrack() {
+  router.push({ path: '/', query: { track: 'true' } })
+}
 
 function handleLogin() {
   authStore.openLoginModal()
@@ -76,12 +78,12 @@ function handleLogout() {
           ⚙️
         </button>
 
-        <!-- Quick Track / Add Media -->
+        <!-- Track Media -->
         <button
           class="btn btn-outline btn-sm"
           type="button"
           title="Track Movie, Series, or Music"
-          @click="showAddMedia = true"
+          @click="handleTrack"
         >
           <span>+</span>
           <span>Track</span>
@@ -150,7 +152,6 @@ function handleLogout() {
   />
   <SettingsModal v-if="showSettings" @close="showSettings = false" />
   <DebugModal v-if="showDebug" @close="showDebug = false" />
-  <AddMediaModal v-if="showAddMedia" @close="showAddMedia = false" />
 </template>
 
 <style scoped>

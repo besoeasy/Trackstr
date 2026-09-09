@@ -5,14 +5,16 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { formatStatus, getStatusColorClass, formatRelativeTime } from '@/utils/formatters.js'
 import RatingInput from '@/components/RatingInput.vue'
-import AddMediaModal from '@/components/AddMediaModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
-const showAddMedia = ref(false)
 const activeTab = ref('all') // 'all' | 'active' | 'completed' | 'plan' | 'dropped' | 'reviews'
+
+function handleTrack() {
+  router.push({ path: '/', query: { track: 'true' } })
+}
 
 onMounted(() => {
   if (authStore.pubkey) {
@@ -98,7 +100,7 @@ function navigateToItem(contentId, media) {
         <button
           class="btn btn-primary btn-sm"
           type="button"
-          @click="showAddMedia = true"
+          @click="handleTrack"
         >
           <span>+</span>
           <span>Track Media</span>
@@ -263,7 +265,6 @@ function navigateToItem(contentId, media) {
         </div>
       </div>
     </template>
-    <AddMediaModal v-if="showAddMedia" @close="showAddMedia = false" />
   </div>
 </template>
 
