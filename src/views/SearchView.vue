@@ -6,6 +6,7 @@ import { searchMusicBrainz, SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { useMediaStore } from '@/stores/media.js'
 import MediaCard from '@/components/MediaCard.vue'
+import AddMediaModal from '@/components/AddMediaModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,7 @@ const isSearching = ref(false)
 const results = ref([])
 const hasSearched = ref(false)
 const hasTmdbKey = ref(!!getTmdbApiKey())
+const showAddModal = ref(false)
 
 let debounceTimer = null
 
@@ -197,6 +199,9 @@ async function loadInitialSamples() {
       <div v-else>
         <div class="results-meta">
           <span>{{ results.length }} {{ hasSearched ? 'results' : 'featured titles' }}</span>
+          <button class="btn btn-outline btn-sm" type="button" @click="showAddModal = true">
+            <span>+</span> Track by Fields (Minimal)
+          </button>
         </div>
 
         <div class="grid grid-media">
@@ -208,6 +213,8 @@ async function loadInitialSamples() {
         </div>
       </div>
     </div>
+
+    <AddMediaModal v-if="showAddModal" @close="showAddModal = false" />
   </div>
 </template>
 
@@ -279,6 +286,9 @@ async function loadInitialSamples() {
   font-size: 0.85rem;
   color: var(--text-muted);
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .loading-state, .empty-state {

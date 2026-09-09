@@ -404,6 +404,87 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
+  /**
+   * Retrieves all unique media items indexed across all Nostr events in our store
+   */
+  function getKnownMediaFromEvents(type = null) {
+    const items = new Map()
+
+    // 1. From mediaLibrary cache
+    Object.values(mediaLibrary.value).forEach((m) => {
+      if (m && m.contentId) {
+        if (!type || m.type === type) {
+          items.set(m.contentId, { ...m })
+        }
+      }
+    })
+
+    // 2. From statuses (kind 35402)
+    Object.values(statuses.value).forEach((s) => {
+      if (s.media && s.contentId) {
+        if (!type || s.media.type === type) {
+          const existing = items.get(s.contentId) || {}
+          items.set(s.contentId, {
+            ...existing,
+            ...s.media,
+            contentId: s.contentId,
+            userStatus: s.status,
+          })
+        }
+      }
+    })
+
+    // 3. From reviews (kind 5401)
+    reviews.value.forEach((r) => {
+      if (r.media && r.contentId) {
+        if (!type || r.media.type === type) {
+          const existing = items.get(r.contentId) || {}
+          items.set(r.contentId, { ...existing, ...r.media, contentId: r.contentId })
+        }
+      }
+    })
+
+    // 4. From activity logs (kind 5402)
+    activityLogs.value.forEach((a) => {
+      if (a.media && a.contentId) {
+        if (!type || a.media.type === type) {
+          const existing = items.get(a.contentId) || {}
+          items.set(a.contentId, { ...existing, ...a.media, contentId: a.contentId })
+        }
+      }
+    })
+
+    // 5. From community metadata (kind 35403)
+    Object.entries(communityMetadata.value).forEach(([cId, meta]) => {
+      if (items.has(cId)) {
+        const existing = items.get(cId)
+        items.set(cId, {
+          ...existing,
+          poster: existing.poster || meta.poster,
+          genres: meta.genres || existing.genres,
+        })
+      }
+    })
+
+    return Array.from(items.values())
+  }
+
+  /**
+   * Searches known Nostr events for title/artist autocomplete
+   */
+  function searchEventAutocomplete(type, query = '') {
+    const all = getKnownMediaFromEvents(type)
+    const q = query.trim().toLowerCase()
+    if (!q) return all.slice(0, 10)
+    return all
+      .filter((item) => {
+        const title = (item.title || item.name || '').toLowerCase()
+        const artist = (item.artist || '').toLowerCase()
+        return title.includes(q) || artist.includes(q)
+      })
+      .slice(0, 10)
+  }
+
   const trackedItemsList = computed(() => {
     return Object.values(statuses.value)
   })
@@ -430,6 +511,8 @@ export const useMediaStore = defineStore('media', () => {
     getReviewsForMedia,
     getActivityForMedia,
     cacheMediaItem,
+    getKnownMediaFromEvents,
+    searchEventAutocomplete,
     trackedItemsList,
   }
 })
