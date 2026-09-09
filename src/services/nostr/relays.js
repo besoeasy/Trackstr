@@ -1,6 +1,7 @@
 /**
  * Trackstr Relay Configuration
  */
+import { normalizeRelayUrl } from '@/utils/urls.js'
 
 export const DEFAULT_RELAYS = [
   'wss://relay.primal.net',
@@ -9,7 +10,33 @@ export const DEFAULT_RELAYS = [
   'wss://purplerelay.com',
 ]
 
+export const MAX_RELAYS = 12
+const DEAD_RELAYS = ['wss://relay.damus.io']
+
 const STORAGE_KEY = 'trackstr_relays'
+
+/**
+ * Sanitizes a raw relay list: trims, validates scheme, dedupes
+ * (case-insensitive), drops dead relays, caps the count.
+ * @param {unknown} relays
+ * @returns {string[]}
+ */
+export function sanitizeRelayList(relays) {
+  if (!Array.isArray(relays)) return []
+  const seen = new Set()
+  const out = []
+  for (const raw of relays) {
+    const clean = normalizeRelayUrl(raw)
+    if (!clean) continue
+    if (DEAD_RELAYS.includes(clean)) continue
+    const key = clean.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(clean)
+    if (out.length >= MAX_RELAYS) break
+  }
+  return out
+}
 
 /**
  * Gets configured relays (custom or default)
@@ -19,21 +46,25 @@ export function getRelays() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
-      let parsed = JSON.parse(saved)
+      const parsed = JSON.parse(saved)
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Automatically migrate users away from down/503 damus.io default
-        if (parsed[0] === 'wss://relay.damus.io') {
-          parsed = parsed.filter((r) => r !== 'wss://relay.damus.io')
-          if (!parsed.includes('wss://relay.snort.social')) {
-            parsed.push('wss://relay.snort.social')
+        const clean = sanitizeRelayList(parsed)
+        if (clean.length > 0) {
+          // Persist the sanitized form (migrates damus/typos/dupes away once).
+          if (JSON.stringify(clean) !== JSON.stringify(parsed)) {
+            saveRelays(clean)
           }
-          saveRelays(parsed)
+          return clean
         }
-        return parsed
       }
+      // Stored value is unusable — purge it so we stop warning every call.
+      localStorage.removeItem(STORAGE_KEY)
     }
   } catch (e) {
-    console.warn('Failed to parse saved relays:', e)
+    console.warn('Failed to parse saved relays, resetting to defaults:', e)
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {}
   }
   return [...DEFAULT_RELAYS]
 }
@@ -44,7 +75,7 @@ export function getRelays() {
  */
 export function saveRelays(relays) {
   try {
-    const unique = Array.from(new Set(relays.map((r) => r.trim()).filter(Boolean)))
+    const unique = sanitizeRelayList(relays)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(unique))
   } catch (e) {
     console.error('Failed to save relays:', e)

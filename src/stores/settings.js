@@ -1,37 +1,65 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getRelays, saveRelays, resetRelays, DEFAULT_RELAYS } from '@/services/nostr/relays.js'
+import { getRelays, saveRelays, resetRelays, DEFAULT_RELAYS, MAX_RELAYS } from '@/services/nostr/relays.js'
 import { DEFAULT_ORIGINLESS_INSTANCE } from '@/services/originless.js'
 import { getTmdbApiKey } from '@/services/api/tmdb.js'
+import { normalizeRelayUrl, isSafeHttpUrl } from '@/utils/urls.js'
+import { nostrClient } from '@/services/nostr/client.js'
 
 export const useSettingsStore = defineStore('settings', () => {
   const relays = ref(getRelays())
   const originlessUrl = ref(localStorage.getItem('trackstr_originless_url') || DEFAULT_ORIGINLESS_INSTANCE)
   const tmdbApiKey = ref(getTmdbApiKey())
   const theme = ref(localStorage.getItem('trackstr_theme') || 'dark')
+  const settingsError = ref('')
+
+  function refreshRelayConnections() {
+    try {
+      nostrClient.resetConnections()
+    } catch {}
+  }
 
   function addRelay(url) {
-    const clean = url.trim()
-    if (!clean) return
-    if (!relays.value.includes(clean)) {
-      relays.value.push(clean)
-      saveRelays(relays.value)
+    settingsError.value = ''
+    const clean = normalizeRelayUrl(url)
+    if (!clean) {
+      settingsError.value = 'Relay URL must look like wss://relay.example.com'
+      return false
     }
+    if (relays.value.some((r) => r.toLowerCase() === clean.toLowerCase())) {
+      return true
+    }
+    if (relays.value.length >= MAX_RELAYS) {
+      settingsError.value = `Relay limit reached (max ${MAX_RELAYS}). Remove one first.`
+      return false
+    }
+    relays.value.push(clean)
+    saveRelays(relays.value)
+    refreshRelayConnections()
+    return true
   }
 
   function removeRelay(url) {
     relays.value = relays.value.filter((r) => r !== url)
     saveRelays(relays.value)
+    refreshRelayConnections()
   }
 
   function restoreDefaultRelays() {
     relays.value = resetRelays()
+    refreshRelayConnections()
   }
 
   function setOriginlessUrl(url) {
-    const clean = url.trim() || DEFAULT_ORIGINLESS_INSTANCE
+    settingsError.value = ''
+    const clean = (url || '').trim().replace(/\/+$/, '') || DEFAULT_ORIGINLESS_INSTANCE
+    if (!isSafeHttpUrl(clean)) {
+      settingsError.value = 'Originless node URL must be an https:// URL.'
+      return false
+    }
     originlessUrl.value = clean
     localStorage.setItem('trackstr_originless_url', clean)
+    return true
   }
 
   function setTmdbApiKey(key) {
@@ -49,9 +77,11 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     relays,
     defaultRelays: DEFAULT_RELAYS,
+    maxRelays: MAX_RELAYS,
     originlessUrl,
     tmdbApiKey,
     theme,
+    settingsError,
     addRelay,
     removeRelay,
     restoreDefaultRelays,

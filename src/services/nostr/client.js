@@ -16,6 +16,23 @@ class NostrClient {
   }
 
   /**
+   * Tears down all relay connections and starts a fresh pool.
+   * Call on logout and after the relay list changes so stale sockets
+   * and removed relays stop receiving traffic.
+   */
+  resetConnections() {
+    try {
+      if (typeof this.pool.destroy === 'function') {
+        this.pool.destroy()
+      }
+    } catch (err) {
+      logger.warn('NostrClient', 'Error destroying relay pool:', err)
+    }
+    this.pool = new SimplePool()
+    logger.info('NostrClient', 'Relay pool reset')
+  }
+
+  /**
    * Returns current active relays
    * @returns {string[]}
    */
@@ -258,12 +275,13 @@ class NostrClient {
     // Ensure pubkey is attached to the event template
     const fullTemplate = { ...eventTemplate }
     if (!fullTemplate.pubkey) {
-      try {
-        const pk = await this.getPublicKeyFromExtension()
-        if (pk) fullTemplate.pubkey = pk
-      } catch (pkErr) {
-        logger.warn('NostrClient', 'Could not obtain pubkey prior to signing:', pkErr)
+      const pk = await this.getPublicKeyFromExtension().catch((pkErr) => {
+        throw new Error(`Could not determine signing pubkey: ${pkErr?.message || pkErr}`)
+      })
+      if (!pk) {
+        throw new Error('Could not determine signing pubkey from the extension.')
       }
+      fullTemplate.pubkey = pk
     }
 
     logger.info('NostrClient', `Requesting signature for kind ${fullTemplate.kind} event from extension... (Check your browser extension prompt/badge)`, fullTemplate)
@@ -357,9 +375,10 @@ class NostrClient {
    * @param {Function} callbacks.onEvent
    * @param {Function} [callbacks.onEose]
    * @param {string[]} [customRelays]
+   * @param {number} [timeoutMs] Optional failsafe: force-close the subscription after this long
    * @returns {() => void} Unsubscribe function
    */
-  subscribe(filters, callbacks, customRelays) {
+  subscribe(filters, callbacks, customRelays, timeoutMs) {
     const relays = customRelays || this.getRelays()
     logger.debug('NostrClient', 'Starting subscription with filters:', filters)
 
@@ -372,7 +391,19 @@ class NostrClient {
       },
     })
 
+    let timer = null
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try {
+          sub.close()
+        } catch (e) {
+          console.warn('Error closing timed-out subscription:', e)
+        }
+      }, timeoutMs)
+    }
+
     return () => {
+      if (timer) clearTimeout(timer)
       try {
         sub.close()
       } catch (e) {
@@ -399,29 +430,39 @@ class NostrClient {
     return new Promise((resolve) => {
       let isDone = false
       let timer = null
+      let sub = null
 
       const done = () => {
         if (isDone) return
         isDone = true
         if (timer) clearTimeout(timer)
-        sub.close()
+        if (sub) {
+          try {
+            sub.close()
+          } catch {}
+        }
         logger.debug('NostrClient', `Query completed with ${events.length} unique events`)
         resolve(events)
       }
 
       timer = setTimeout(done, timeoutMs)
 
-      const sub = this.pool.subscribeMany(relays, filters, {
-        onevent(evt) {
-          if (!seenIds.has(evt.id)) {
-            seenIds.add(evt.id)
-            events.push(evt)
-          }
-        },
-        oneose() {
-          done()
-        },
-      })
+      try {
+        sub = this.pool.subscribeMany(relays, filters, {
+          onevent(evt) {
+            if (evt && !seenIds.has(evt.id)) {
+              seenIds.add(evt.id)
+              events.push(evt)
+            }
+          },
+          oneose() {
+            done()
+          },
+        })
+      } catch (err) {
+        logger.warn('NostrClient', 'Subscription failed, resolving with events so far:', err)
+        done()
+      }
     })
   }
 

@@ -11,7 +11,6 @@ import { logger } from '@/utils/logger.js'
 export const POPULAR_BUNKER_RELAYS = [
   'wss://nos.lol',
   'wss://relay.primal.net',
-  'wss://relay.damus.io',
 ]
 
 const DEFAULT_BUNKER_RELAYS = POPULAR_BUNKER_RELAYS
@@ -33,6 +32,9 @@ export function bytesToHex(bytes) {
 export function hexToBytes(hex) {
   if (typeof hex !== 'string') return new Uint8Array(0)
   const clean = hex.trim()
+  if (!/^[0-9a-f]*$/i.test(clean) || clean.length === 0 || clean.length % 2 !== 0) {
+    return new Uint8Array(0)
+  }
   const bytes = new Uint8Array(clean.length / 2)
   for (let i = 0; i < clean.length; i += 2) {
     bytes[i / 2] = parseInt(clean.substring(i, i + 2), 16)
@@ -48,8 +50,10 @@ export function getOrCreateClientSecretKey() {
   const STORAGE_KEY = 'trackstr_bunker_client_secret'
   try {
     const existingHex = localStorage.getItem(STORAGE_KEY)
-    if (existingHex && existingHex.length === 64) {
-      return hexToBytes(existingHex)
+    // Strict format check: a corrupted value must never become a weak/known key.
+    if (existingHex && /^[0-9a-f]{64}$/i.test(existingHex.trim())) {
+      const bytes = hexToBytes(existingHex.trim())
+      if (bytes.length === 32) return bytes
     }
   } catch (err) {
     logger.warn('BunkerService', 'Could not read client secret key from storage:', err)
@@ -109,6 +113,10 @@ class BunkerService {
    * @param {Function} [onAuthUrl]
    */
   handleAuthUrl(authUrl, onAuthUrl) {
+    if (typeof authUrl !== 'string' || !/^https?:\/\//i.test(authUrl.trim())) {
+      logger.warn('BunkerService', 'Ignoring non-http(s) signer authorization URL.')
+      return
+    }
     this.lastAuthUrl = authUrl
     logger.info('BunkerService', `Remote signer requires authorization: ${authUrl}`)
 
@@ -177,12 +185,14 @@ class BunkerService {
       url: origin,
       image: `${origin}/favicon.ico`,
       perms: [
+        'sign_event:0',
+        'sign_event:3',
+        'sign_event:5',
         'sign_event:35400',
         'sign_event:35402',
         'sign_event:35403',
         'sign_event:5401',
         'sign_event:5402',
-        'sign_event:5',
         'nip04_encrypt',
         'nip04_decrypt',
         'nip44_encrypt',
@@ -224,13 +234,9 @@ class BunkerService {
     logger.info('BunkerService', `Listening for Nostr Connect from URI: ${uri}`)
     options.onStatus?.('Listening for signer scan on relay...')
 
-    // Clean up any existing active signer
-    if (this.signer) {
-      try {
-        await this.signer.close()
-      } catch {}
-      this.signer = null
-    }
+    // NOTE: the previous live signer (if any) is closed only after the
+    // replacement succeeds, so a failed login can't log the user out.
+    const previousSigner = this.signer
 
     const abortSignal = options.abortSignal || null
     let signer
@@ -262,18 +268,27 @@ class BunkerService {
         await signer.connect({ name: 'Trackstr', url: origin })
         userPubkey = await signer.getPublicKey()
       } catch (err2) {
-        if (signer.bp && signer.bp.pubkey) {
-          userPubkey = signer.bp.pubkey
-        } else {
-          throw pkErr
-        }
+        // Never fall back to the bunker *service* key (signer.bp.pubkey):
+        // that is the provider's identity, not the user's.
+        try {
+          await signer.close()
+        } catch {}
+        throw err2?.message ? err2 : pkErr
       }
     }
 
     if (!userPubkey || typeof userPubkey !== 'string') {
+      try {
+        await signer.close()
+      } catch {}
       throw new Error('Could not determine remote public key from signer.')
     }
 
+    if (previousSigner) {
+      try {
+        await previousSigner.close()
+      } catch {}
+    }
     this.signer = signer
     this.bunkerPointer = signer.bp
     this.activePubkey = userPubkey
@@ -334,13 +349,9 @@ class BunkerService {
     options.onStatus?.('Subscribing to Bunker relay channels...')
     logger.info('BunkerService', 'Initializing BunkerSigner with relays:', bp.relays)
 
-    // Clean up any existing active signer
-    if (this.signer) {
-      try {
-        await this.signer.close()
-      } catch {}
-      this.signer = null
-    }
+    // NOTE: the previous live signer (if any) is closed only after the
+    // replacement succeeds, so a failed login can't log the user out.
+    const previousSigner = this.signer
 
     const signer = BunkerSigner.fromBunker(clientSecretKey, bp, {
       pool: options.pool,
@@ -402,12 +413,23 @@ class BunkerService {
     this.signer = signer
     this.bunkerPointer = bp
     this.activePubkey = userPubkey
+    if (previousSigner) {
+      try {
+        await previousSigner.close()
+      } catch {}
+    }
 
-    // Persist credentials
+    // Persist credentials. The raw input is remembered only when it carries
+    // no secret (NIP-05 addresses) — bunker:// URIs embed the client secret
+    // and must not linger in storage.
     try {
       localStorage.setItem('trackstr_auth_type', 'bunker')
       localStorage.setItem('trackstr_bunker_pointer', JSON.stringify(bp))
-      localStorage.setItem('trackstr_bunker_input', rawInput)
+      if (!/secret=/i.test(rawInput)) {
+        localStorage.setItem('trackstr_bunker_input', rawInput)
+      } else {
+        localStorage.removeItem('trackstr_bunker_input')
+      }
       localStorage.setItem('trackstr_pubkey', userPubkey)
     } catch (storageErr) {
       logger.warn('BunkerService', 'Could not save bunker credentials to localStorage:', storageErr)
@@ -432,8 +454,26 @@ class BunkerService {
       const rawPointer = localStorage.getItem('trackstr_bunker_pointer')
       if (!rawPointer) return null
 
-      const bp = JSON.parse(rawPointer)
-      if (!bp || !bp.pubkey || !bp.relays || bp.relays.length === 0) return null
+      let bp = null
+      try {
+        bp = JSON.parse(rawPointer)
+      } catch {
+        bp = null
+      }
+      // Strict pointer shape; purge corrupt data instead of ghost-looping on it.
+      if (
+        !bp ||
+        typeof bp.pubkey !== 'string' ||
+        !/^[0-9a-f]{64}$/i.test(bp.pubkey) ||
+        !Array.isArray(bp.relays) ||
+        bp.relays.length === 0 ||
+        !bp.relays.every((r) => typeof r === 'string' && /^wss?:\/\//i.test(r))
+      ) {
+        try {
+          localStorage.removeItem('trackstr_bunker_pointer')
+        } catch {}
+        return null
+      }
 
       logger.info('BunkerService', 'Restoring Bunker signer session from localStorage...')
       const clientSecretKey = getOrCreateClientSecretKey()
@@ -553,7 +593,8 @@ class BunkerService {
   }
 
   /**
-   * Disconnects Bunker session and clears credentials
+   * Disconnects Bunker session and clears credentials. Rotates the client
+   * secret so consecutive sessions are not correlatable by it.
    */
   async disconnectBunker() {
     if (this.signer) {
@@ -576,6 +617,9 @@ class BunkerService {
         localStorage.removeItem('trackstr_auth_type')
         localStorage.removeItem('trackstr_pubkey')
       }
+      // Rotate: drop the old client secret and mint a fresh one.
+      localStorage.removeItem('trackstr_bunker_client_secret')
+      getOrCreateClientSecretKey()
     } catch {}
 
     logger.info('BunkerService', 'Bunker signer disconnected and cleared')

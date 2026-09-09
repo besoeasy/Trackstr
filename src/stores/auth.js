@@ -3,11 +3,30 @@ import { ref, computed } from 'vue'
 import { nostrClient } from '@/services/nostr/client.js'
 import { bunkerService } from '@/services/nostr/bunker.js'
 import { logger } from '@/utils/logger.js'
+import { isValidPubkey } from '@/utils/urls.js'
 import { nip19 } from 'nostr-tools'
 
+function loadStoredIdentity() {
+  try {
+    const storedPubkey = localStorage.getItem('trackstr_pubkey') || ''
+    if (storedPubkey && !isValidPubkey(storedPubkey)) {
+      // Corrupted or tampered storage must never yield a fake session.
+      localStorage.removeItem('trackstr_pubkey')
+      localStorage.removeItem('trackstr_auth_type')
+      return { pubkey: '', authType: null }
+    }
+    const storedType = localStorage.getItem('trackstr_auth_type')
+    const authType = storedType === 'bunker' || storedType === 'extension' ? storedType : storedPubkey ? 'extension' : null
+    return { pubkey: storedPubkey, authType }
+  } catch {
+    return { pubkey: '', authType: null }
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  const pubkey = ref(localStorage.getItem('trackstr_pubkey') || '')
-  const authType = ref(localStorage.getItem('trackstr_auth_type') || (pubkey.value ? 'extension' : null))
+  const stored = loadStoredIdentity()
+  const pubkey = ref(stored.pubkey)
+  const authType = ref(stored.authType)
   const showLoginModal = ref(false)
   const bunkerPointer = ref(bunkerService.getBunkerPointer())
   const profile = ref(null)
@@ -67,6 +86,11 @@ export const useAuthStore = defineStore('auth', () => {
     logger.info('AuthStore', 'User triggered loginWithExtension()')
 
     try {
+      // A lingering Bunker signer would keep signing (client prefers it),
+      // attributing events to the wrong identity — disconnect it first.
+      if (bunkerService.isConnected()) {
+        await bunkerService.disconnectBunker()
+      }
       const hex = await nostrClient.getPublicKeyFromExtension()
       if (!hex) {
         throw new Error('No public key returned by extension.')
@@ -229,6 +253,11 @@ export const useAuthStore = defineStore('auth', () => {
     profile.value = null
     localStorage.removeItem('trackstr_pubkey')
     localStorage.removeItem('trackstr_auth_type')
+    // Drop live sockets and pending callbacks so nothing keeps ingesting
+    // into the shared stores across accounts.
+    try {
+      nostrClient.resetConnections()
+    } catch {}
     logger.info('AuthStore', 'User logged out')
   }
 
