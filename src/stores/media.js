@@ -10,9 +10,7 @@ import {
   buildActivityLogEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
-import { buildDTag, computeContentId } from '@/utils/contentId.js'
-import { SAMPLE_MEDIA } from '@/services/api/tmdb.js'
-import { SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
+import { buildDTag } from '@/utils/contentId.js'
 import { useAuthStore } from './auth.js'
 
 const LOCAL_STORAGE_KEY = 'trackstr_media_cache'
@@ -27,6 +25,10 @@ export const useMediaStore = defineStore('media', () => {
   const activityLogs = ref([]) // Array of kind 5402 events
   const communityMetadata = ref({}) // key: contentId -> { poster, banner, genres, overview, author, createdAt }
   const mediaLibrary = ref({}) // key: contentId -> base media object
+  // Nostr-event provenance: contentIds observed in ingested Nostr events.
+  // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
+  // Nostr-only surfaces must filter by this set. key: contentId -> 1
+  const nostrContentIds = ref({})
 
   const isSyncing = ref(false)
   const lastSyncedAt = ref(0)
@@ -46,6 +48,24 @@ export const useMediaStore = defineStore('media', () => {
         communityMetadata.value = data.communityMetadata || {}
         mediaLibrary.value = data.mediaLibrary || {}
         lastSyncedAt.value = data.lastSyncedAt || 0
+        nostrContentIds.value = data.nostrContentIds || {}
+        // Heal provenance for caches written before provenance tracking:
+        // anything referenced by persisted event-derived state is Nostr-sourced.
+        Object.values(statuses.value).forEach((s) => {
+          if (s?.contentId) nostrContentIds.value[s.contentId] = 1
+        })
+        Object.values(ratings.value).forEach((r) => {
+          if (r?.contentId) nostrContentIds.value[r.contentId] = 1
+        })
+        reviews.value.forEach((r) => {
+          if (r?.contentId) nostrContentIds.value[r.contentId] = 1
+        })
+        activityLogs.value.forEach((a) => {
+          if (a?.contentId) nostrContentIds.value[a.contentId] = 1
+        })
+        Object.keys(communityMetadata.value).forEach((cId) => {
+          nostrContentIds.value[cId] = 1
+        })
       }
     } catch (err) {
       console.warn('Failed to load media cache from localStorage:', err)
@@ -62,6 +82,7 @@ export const useMediaStore = defineStore('media', () => {
         communityMetadata: communityMetadata.value,
         mediaLibrary: mediaLibrary.value,
         lastSyncedAt: lastSyncedAt.value,
+        nostrContentIds: nostrContentIds.value,
       }
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data))
     } catch (err) {
@@ -100,6 +121,11 @@ export const useMediaStore = defineStore('media', () => {
 
     if (media.contentId && !mediaLibrary.value[media.contentId]) {
       mediaLibrary.value[media.contentId] = media
+    }
+    if (media.contentId) {
+      // Record Nostr provenance so Nostr-only surfaces can distinguish
+      // event-sourced items from cached provider (TMDB/MusicBrainz) results.
+      nostrContentIds.value[media.contentId] = 1
     }
 
     if (evt.kind === KINDS.STATUS) {
@@ -346,31 +372,9 @@ export const useMediaStore = defineStore('media', () => {
         return (b.latestActivityAt || 0) - (a.latestActivityAt || 0)
       })
 
-      // If fewer than limit, blend in curated sample items so user never sees an empty grid
-      if (ranked.length < limit) {
-        const samplesToConsider = [...SAMPLE_MEDIA, ...SAMPLE_MUSIC].filter(
-          (s) => !type || s.type === type
-        )
-
-        for (const sample of samplesToConsider) {
-          if (ranked.length >= limit) break
-          const { contentId } = await computeContentId({
-            type: sample.type,
-            title: sample.title,
-            year: sample.year,
-            artist: sample.artist,
-          })
-
-          if (!ranked.some((r) => r.contentId === contentId)) {
-            ranked.push({
-              ...sample,
-              contentId,
-              nostrEventCount: mentionCounts.get(contentId) || 0,
-            })
-          }
-        }
-      }
-
+      // Nostr events only: never pad with hardcoded samples or provider
+      // search results. A quiet relay yields a short (possibly empty) grid
+      // and the UI already renders an empty state for that case.
       return ranked.slice(0, limit)
     } catch (err) {
       console.warn('Failed to fetch popular media from Nostr events:', err)
@@ -523,14 +527,16 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Retrieves all unique media items indexed across all Nostr events in our store
+   * Retrieves all unique media items indexed across Nostr events in our store.
+   * Nostr-only: mediaLibrary entries cached from provider searches
+   * (TMDB/MusicBrainz) without event provenance are excluded.
    */
   function getKnownMediaFromEvents(type = null) {
     const items = new Map()
 
-    // 1. From mediaLibrary cache
+    // 1. From mediaLibrary cache (Nostr-sourced entries only)
     Object.values(mediaLibrary.value).forEach((m) => {
-      if (m && m.contentId) {
+      if (m && m.contentId && nostrContentIds.value[m.contentId]) {
         if (!type || m.type === type) {
           items.set(m.contentId, { ...m })
         }
