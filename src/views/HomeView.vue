@@ -15,9 +15,11 @@ const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
-// Search state
+// Search state - strictly category based (no global search)
+const validTabs = ['movies', 'shows', 'music']
+const initialTab = validTabs.includes(route.query.tab) ? route.query.tab : 'movies'
 const query = ref(route.query.q || '')
-const activeTab = ref(route.query.tab || 'all') // 'all' | 'movies' | 'shows' | 'music'
+const activeTab = ref(initialTab) // 'movies' | 'shows' | 'music'
 const isSearching = ref(false)
 const searchResults = ref([])
 const hasSearched = ref(false)
@@ -36,10 +38,18 @@ const activeTypeFilter = computed(() => {
   if (activeTab.value === 'movies') return 'movie'
   if (activeTab.value === 'shows') return 'show'
   if (activeTab.value === 'music') return 'music'
-  return null
+  return 'movie'
 })
 
-// Search execution
+// Dynamic placeholder based on selected category
+const searchPlaceholder = computed(() => {
+  if (activeTab.value === 'movies') return 'Search movies by title (e.g. Fight Club, Inception)...'
+  if (activeTab.value === 'shows') return 'Search series & TV shows (e.g. Breaking Bad, Stranger Things)...'
+  if (activeTab.value === 'music') return 'Search music albums, tracks & artists (e.g. Nevermind, Radiohead)...'
+  return 'Search movies...'
+})
+
+// Search execution - strictly category based
 async function executeSearch() {
   const q = query.value.trim()
   if (!q) {
@@ -54,16 +64,7 @@ async function executeSearch() {
   try {
     let items = []
 
-    if (activeTab.value === 'all') {
-      const [tmdbRes, mbRes] = await Promise.allSettled([
-        searchTmdb(q, 'all'),
-        searchMusicBrainz(q),
-      ])
-
-      const tmdbItems = tmdbRes.status === 'fulfilled' ? tmdbRes.value : []
-      const mbItems = mbRes.status === 'fulfilled' ? mbRes.value : []
-      items = [...tmdbItems, ...mbItems]
-    } else if (activeTab.value === 'movies') {
+    if (activeTab.value === 'movies') {
       items = await searchTmdb(q, 'movies')
     } else if (activeTab.value === 'shows') {
       items = await searchTmdb(q, 'shows')
@@ -124,7 +125,7 @@ function setTab(tab) {
 function syncUrlQuery() {
   const newQuery = {}
   if (query.value.trim()) newQuery.q = query.value.trim()
-  if (activeTab.value !== 'all') newQuery.tab = activeTab.value
+  newQuery.tab = activeTab.value
   router.replace({ query: newQuery })
 }
 
@@ -195,7 +196,7 @@ watch(
         <span class="badge badge-primary hero-badge">Nostr-Powered Media Social</span>
         <h1 class="hero-title">Track everything you love. Own your taste.</h1>
         <p class="hero-subtitle">
-          Search movies, series & music across open providers, or explore popular media and scrobbles living on Nostr.
+          Select a category (movie, series, music) to search without name collisions, or explore popular media and scrobbles on Nostr.
         </p>
 
         <!-- Search Bar with Actions -->
@@ -206,7 +207,7 @@ watch(
               v-model="query"
               type="search"
               class="input search-input"
-              placeholder="Search movies, TV shows, music albums, artists across providers..."
+              :placeholder="searchPlaceholder"
               @input="onInput"
               @keyup.enter="executeSearch"
             />
@@ -231,16 +232,8 @@ watch(
           </button>
         </div>
 
-        <!-- Filter Category Tabs -->
+        <!-- Strict Category Tabs (No Global Search) -->
         <div class="tabs-bar search-tabs">
-          <button
-            class="tab-btn"
-            :class="{ 'is-active': activeTab === 'all' }"
-            type="button"
-            @click="setTab('all')"
-          >
-            All Media
-          </button>
           <button
             class="tab-btn"
             :class="{ 'is-active': activeTab === 'movies' }"
@@ -255,7 +248,7 @@ watch(
             type="button"
             @click="setTab('shows')"
           >
-            📺 TV Shows
+            📺 Series
           </button>
           <button
             class="tab-btn"

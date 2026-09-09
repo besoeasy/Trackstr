@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth.js'
 import { computeContentId, buildDTag } from '@/utils/contentId.js'
 import { formatStatus, getStatusColorClass } from '@/utils/formatters.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
+import { searchTmdb } from '@/services/api/tmdb.js'
+import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
 import RatingInput from './RatingInput.vue'
 
 const emit = defineEmits(['close', 'saved'])
@@ -27,30 +29,91 @@ const rating = ref(null)
 const note = ref('')
 const posterUrl = ref('')
 
-// Autocomplete state
+// Category-scoped autocomplete state (strictly scoped to selectedType)
 const showSuggestions = ref(false)
+const suggestions = ref([])
+const isSearchingSuggestions = ref(false)
 const isSubmitting = ref(false)
 const errorMsg = ref('')
+let suggestDebounceTimer = null
 
 // Content ID & canonical string calculation
 const canonicalString = ref('')
 const contentId = ref('')
 const currentDTag = ref('')
 
-// Compute autocomplete suggestions from Nostr events
-const eventSuggestions = computed(() => {
-  if (!title.value) {
-    return mediaStore.searchEventAutocomplete(selectedType.value, '').slice(0, 5)
+async function fetchCategorySuggestions() {
+  const q = title.value.trim()
+  if (!q) {
+    const eventMatches = mediaStore.searchEventAutocomplete(selectedType.value, '').slice(0, 5)
+    suggestions.value = eventMatches.map((m) => ({ ...m, isNostrEvent: true }))
+    return
   }
-  return mediaStore.searchEventAutocomplete(selectedType.value, title.value)
-})
 
-// Update status options when type changes
+  isSearchingSuggestions.value = true
+  try {
+    // 1. Get Nostr event matches strictly for this category
+    const eventMatches = mediaStore.searchEventAutocomplete(selectedType.value, q).map((m) => ({
+      ...m,
+      isNostrEvent: true,
+    }))
+
+    // 2. Query external provider strictly for this category (no global search)
+    let providerResults = []
+    if (selectedType.value === 'movie') {
+      providerResults = await searchTmdb(q, 'movies')
+    } else if (selectedType.value === 'show') {
+      providerResults = await searchTmdb(q, 'shows')
+    } else if (selectedType.value === 'music') {
+      providerResults = await searchMusicBrainz(q)
+    }
+
+    // 3. Deduplicate by type + normalized title + year
+    const seen = new Set()
+    const merged = []
+
+    for (const em of eventMatches) {
+      const key = `${em.type}|${(em.title || em.name || '').toLowerCase()}|${em.year || ''}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(em)
+      }
+    }
+
+    for (const pr of providerResults) {
+      const key = `${pr.type}|${(pr.title || pr.name || '').toLowerCase()}|${pr.year || ''}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(pr)
+      }
+    }
+
+    suggestions.value = merged.slice(0, 8)
+  } catch (err) {
+    console.warn('Category autocomplete fetch failed:', err)
+  } finally {
+    isSearchingSuggestions.value = false
+  }
+}
+
+function onTitleInput() {
+  showSuggestions.value = true
+  clearTimeout(suggestDebounceTimer)
+  suggestDebounceTimer = setTimeout(() => {
+    fetchCategorySuggestions()
+  }, 300)
+}
+
+// Update status options and re-run category search when type changes
 watch(selectedType, (newType) => {
   if (newType === 'music') {
     status.value = 'listening'
   } else {
     status.value = 'watching'
+  }
+  suggestions.value = []
+  if (title.value.trim()) {
+    fetchCategorySuggestions()
   }
   updateCanonicalHash()
 })
@@ -233,36 +296,38 @@ async function handleSave() {
 
         <!-- Showcase Form Fields -->
         <div class="showcase-fields-container card">
-          <!-- Title with Autocomplete from Nostr Events -->
+          <!-- Title with Category-Specific Autocomplete -->
           <div class="form-group autocomplete-group">
             <label class="form-label">
               {{ selectedType === 'music' ? 'Album / Track Title' : 'Title' }}
-              <span class="badge badge-info autocomplete-badge">Events Autocomplete</span>
+              <span class="badge badge-info autocomplete-badge">
+                {{ selectedType === 'movie' ? '🎬 Movie Search' : selectedType === 'show' ? '📺 Series Search' : '🎵 Music Search' }}
+              </span>
             </label>
             <div class="input-relative">
               <input
                 v-model="title"
                 type="text"
                 class="input"
-                :placeholder="selectedType === 'music' ? 'e.g. Nevermind' : selectedType === 'show' ? 'e.g. Breaking Bad' : 'e.g. Fight Club'"
+                :placeholder="selectedType === 'music' ? 'Search music (e.g. Nevermind, OK Computer)...' : selectedType === 'show' ? 'Search TV series (e.g. Breaking Bad, Stranger Things)...' : 'Search movies (e.g. Fight Club, Inception)...'"
                 autocomplete="off"
-                @focus="showSuggestions = true"
-                @input="showSuggestions = true"
+                @focus="showSuggestions = true; fetchCategorySuggestions()"
+                @input="onTitleInput"
               />
               <span v-if="title" class="clear-btn" @click="title = ''; updateCanonicalHash()">✕</span>
             </div>
 
-            <!-- Autocomplete Dropdown List -->
+            <!-- Category-Scoped Autocomplete Dropdown List -->
             <div
-              v-if="showSuggestions && eventSuggestions.length > 0"
+              v-if="showSuggestions && (suggestions.length > 0 || isSearchingSuggestions)"
               class="autocomplete-dropdown card"
             >
               <div class="dropdown-category-title">
-                Matches from Nostr Events & Library:
+                {{ isSearchingSuggestions ? 'Searching...' : `Results for ${selectedType === 'movie' ? 'Movies only' : selectedType === 'show' ? 'Series only' : 'Music only'}:` }}
               </div>
               <div
-                v-for="sug in eventSuggestions"
-                :key="sug.contentId"
+                v-for="sug in suggestions"
+                :key="sug.id || sug.contentId"
                 class="suggestion-item"
                 @mousedown.prevent="selectSuggestion(sug)"
               >
@@ -286,7 +351,13 @@ async function handleSave() {
                   </span>
                 </div>
 
-                <span class="badge badge-neutral sug-chip">Nostr Event</span>
+                <span v-if="sug.isNostrEvent" class="badge badge-neutral sug-chip">Nostr</span>
+                <span v-else-if="sug.sources && sug.sources.length" class="badge badge-info sug-chip">
+                  {{ sug.sources.join('/') }}
+                </span>
+                <span v-else class="badge badge-info sug-chip">
+                  {{ selectedType === 'music' ? 'MusicBrainz' : 'TMDB' }}
+                </span>
               </div>
             </div>
           </div>
