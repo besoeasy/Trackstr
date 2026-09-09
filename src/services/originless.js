@@ -3,6 +3,7 @@
  * Interacts with Originless public/private node for decentralized media storage.
  * Default instance: https://originless.gupt.app/
  */
+import { isSafeHttpUrl } from '@/utils/urls.js'
 
 export const DEFAULT_ORIGINLESS_INSTANCE = 'https://originless.gupt.app'
 export const DEFAULT_IPFS_RESOLVE_GATEWAY = 'https://dweb.link'
@@ -91,6 +92,9 @@ export async function uploadToOriginless(file, options = {}) {
 export async function mirrorRemoteUrlToOriginless(remoteUrl, filename = 'poster.jpg', instanceUrl = DEFAULT_ORIGINLESS_INSTANCE) {
   if (!remoteUrl) {
     throw new Error('Remote URL is required to mirror to Originless')
+  }
+  if (!isSafeHttpUrl(remoteUrl)) {
+    throw new Error('Only http(s) remote URLs can be mirrored to Originless')
   }
 
   // Fetch the remote asset as a blob

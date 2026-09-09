@@ -7,14 +7,38 @@ const MAX_LOGS = 100
 const logsBuffer = []
 const listeners = new Set()
 
+// Scrub session secrets / API keys out of anything that reaches the log
+// buffer, clipboard export, or browser console. Hex pubkeys are public by
+// design and are intentionally left intact for diagnostics.
+const SECRET_VALUE_RE = /([?&;"'`\s(,])(secret|client_secret|token|password|passwd|pwd|api[_-]?key|nsec)([^0-9a-zA-Z]*)([^\s&;"'`,)\\]+)/gi
+const SECRET_KEY_RE = /secret|token|password|nsec|api[_-]?key/i
+
+function redactSecrets(value) {
+  if (typeof value === 'string') {
+    return value.replace(SECRET_VALUE_RE, '$1$2$3***')
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactSecrets)
+  }
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SECRET_KEY_RE.test(k) && typeof v === 'string' ? '***' : redactSecrets(v)
+    }
+    return out
+  }
+  return value
+}
+
 export function addLog(level, tag, message, data = null) {
+  const safeMessage = typeof message === 'string' ? redactSecrets(message) : message
   const entry = {
     id: Math.random().toString(36).substring(7),
     timestamp: new Date().toLocaleTimeString(),
     level, // 'info' | 'warn' | 'error' | 'debug'
     tag,
-    message,
-    data: data ? (typeof data === 'object' ? JSON.parse(JSON.stringify(data, getCircularReplacer())) : data) : null,
+    message: safeMessage,
+    data: data ? redactSecrets(typeof data === 'object' ? JSON.parse(JSON.stringify(data, getCircularReplacer())) : data) : null,
   }
 
   logsBuffer.push(entry)

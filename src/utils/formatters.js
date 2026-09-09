@@ -58,6 +58,7 @@ export function formatRelativeTime(timestamp) {
  * @returns {string}
  */
 export function formatStatus(status) {
+  if (!status) return 'Not Tracked'
   const map = {
     'plan-to-watch': 'Plan to Watch',
     watching: 'Watching',
@@ -67,7 +68,7 @@ export function formatStatus(status) {
     'plan-to-listen': 'Plan to Listen',
     listening: 'Listening',
   }
-  return map[status] || status || 'Not Tracked'
+  return map[status] || 'Unknown'
 }
 
 /**

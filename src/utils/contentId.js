@@ -43,8 +43,18 @@ export function buildCanonicalString({ type, title, year, artist = '', qualifier
   const normYear = norm(year)
   const normQualifier = qualifier ? norm(qualifier) : ''
 
+  if (!normType) {
+    throw new Error('Media type is required to compute a content ID.')
+  }
+  if (!normTitle) {
+    throw new Error('Title is required to compute a content ID.')
+  }
+
   if (normType === 'music') {
     const normArtist = norm(artist)
+    if (!normArtist) {
+      throw new Error('Artist is required to compute a music content ID.')
+    }
     let canonical = `music|${normArtist}|${normTitle}|${normYear}`
     if (normQualifier) {
       canonical += `|${normQualifier}`
@@ -52,8 +62,10 @@ export function buildCanonicalString({ type, title, year, artist = '', qualifier
     return canonical
   }
 
-  // movie or show (episodes anchor to their parent show contentid)
-  let canonical = `${normType}|${normTitle}|${normYear}`
+  // Episodes anchor directly to their parent show's contentid (spec):
+  // position travels via season/episode tags + d-tag suffix, never the hash.
+  const hashType = normType === 'episode' ? 'show' : normType
+  let canonical = `${hashType}|${normTitle}|${normYear}`
   if (normQualifier) {
     canonical += `|${normQualifier}`
   }
@@ -67,6 +79,9 @@ export function buildCanonicalString({ type, title, year, artist = '', qualifier
  * @returns {Promise<string>}
  */
 export async function sha256Hex(str) {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('WebCrypto (crypto.subtle) is unavailable — content IDs require a secure context (https or localhost).')
+  }
   const encoder = new TextEncoder()
   const data = encoder.encode(str)
   const hashBuffer = await crypto.subtle.digest('SHA-256', data)
@@ -88,16 +103,34 @@ export async function computeContentId(params) {
 /**
  * Constructs the NIP-33 d-tag per AGENTS.md rules:
  * - Movies, shows, music: contentId
- * - Episodes: `${contentId}:s${season}e${episode}`
- * @param {Object} params
- * @param {string} params.contentId
- * @param {string|number} [params.season]
- * @param {string|number} [params.episode]
- * @returns {string}
+ * - Episodes: `${contentId}:s${season}e${episode}` (integers, season 0 = specials)
+ * Empty-string season/episode are treated as absent. Non-hex contentIds pass
+ * through untouched (validation lives in assertContentId / event builders).
  */
 export function buildDTag({ contentId, season, episode }) {
-  if (season !== undefined && episode !== undefined && season !== null && episode !== null) {
-    return `${contentId}:s${season}e${episode}`
+  const s = season === '' || season === null || season === undefined ? null : Number(season)
+  const e = episode === '' || episode === null || episode === undefined ? null : Number(episode)
+  if (
+    s !== null &&
+    e !== null &&
+    Number.isInteger(s) &&
+    Number.isInteger(e) &&
+    s >= 0 &&
+    e >= 1 &&
+    typeof contentId === 'string' &&
+    contentId
+  ) {
+    return `${contentId}:s${s}e${e}`
   }
   return contentId
+}
+
+/**
+ * Throws unless value is a valid 64-hex content ID.
+ */
+export function assertContentId(contentId) {
+  if (typeof contentId !== 'string' || !/^[0-9a-f]{64}$/i.test(contentId)) {
+    throw new Error('A valid 64-hex contentId is required.')
+  }
+  return contentId.toLowerCase()
 }
