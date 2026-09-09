@@ -15,4 +15,8 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  test: {
+    environment: 'node',
+    setupFiles: ['./src/test/setup.js'],
+  },
 })

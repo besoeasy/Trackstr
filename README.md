@@ -129,6 +129,11 @@ npm install
 npm run dev
 ```
 
+```bash
+# Run the automated test suite (Vitest unit tests)
+npm test
+```
+
 Open http://localhost:5173, connect a Nostr extension (Alby / nos2x), and start tracking movies, shows, and music. To deploy, run `npm run build` and host the static `dist/` anywhere — your data still lives on Nostr relays you choose.
 
 ## 🤝 Contributing
