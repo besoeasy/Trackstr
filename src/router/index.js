@@ -7,7 +7,6 @@ import ConnectView from '@/views/ConnectView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import DebugView from '@/views/DebugView.vue'
 import TrackMediaView from '@/views/TrackMediaView.vue'
-import WriteReviewView from '@/views/WriteReviewView.vue'
 import SeedMetadataView from '@/views/SeedMetadataView.vue'
 
 const routes = [
@@ -43,11 +42,6 @@ const routes = [
     name: 'track',
     alias: '/add',
     component: TrackMediaView,
-  },
-  {
-    path: '/media/:contentId/review',
-    name: 'write-review',
-    component: WriteReviewView,
   },
   {
     path: '/media/:contentId/seed',

@@ -53,6 +53,13 @@ const checkInNote = ref('')
 const isLoggingCheckIn = ref(false)
 const checkInError = ref('')
 
+// Inline review modal state
+const showReviewModal = ref(false)
+const reviewBody = ref('')
+const reviewSpoiler = ref(false)
+const isSubmittingReview = ref(false)
+const reviewError = ref('')
+
 // User's current tracking status (Kind 35402)
 const userStatus = computed(() => {
   return mediaStore.getMediaStatus(contentId.value)
@@ -219,6 +226,8 @@ async function handleRatingChange(newRating) {
       return
     }
     await mediaStore.setRating(media.value, newRating)
+    // After rating, offer to attach a quick review comment.
+    openReviewModal()
   } catch (err) {
     console.error('Failed to submit rating:', err)
   }
@@ -226,19 +235,47 @@ async function handleRatingChange(newRating) {
 
 function openReviewModal() {
   if (!authStore.isAuthenticated) {
-    authStore.openLoginModal(`/media/${contentId.value}/review`)
+    authStore.openLoginModal()
     return
   }
-  router.push({
-    name: 'write-review',
-    params: { contentId: contentId.value },
-    query: {
-      title: media.value.title || media.value.name,
-      year: media.value.year,
-      type: media.value.type,
-      artist: media.value.artist,
-    },
-  })
+  reviewBody.value = ''
+  reviewSpoiler.value = false
+  reviewError.value = ''
+  showReviewModal.value = true
+}
+
+function closeReviewModal() {
+  if (isSubmittingReview.value) return
+  showReviewModal.value = false
+}
+
+async function submitReview() {
+  if (!authStore.isAuthenticated) {
+    authStore.openLoginModal()
+    return
+  }
+
+  const body = reviewBody.value.trim()
+  if (!body) {
+    reviewError.value = 'Please enter your review text.'
+    return
+  }
+
+  isSubmittingReview.value = true
+  reviewError.value = ''
+
+  try {
+    await mediaStore.addReview(media.value, body, {
+      rating: userRating.value,
+      spoiler: reviewSpoiler.value,
+    })
+    showReviewModal.value = false
+  } catch (err) {
+    console.error('Failed to submit review:', err)
+    reviewError.value = err.message || 'Failed to publish review to Nostr.'
+  } finally {
+    isSubmittingReview.value = false
+  }
 }
 
 function openCheckInModal() {
@@ -452,10 +489,20 @@ function goBack() {
 
               <div class="action-item">
                 <span class="action-label">Your Score (Kind 35400)</span>
-                <RatingInput
-                  :model-value="userRating"
-                  @change="handleRatingChange"
-                />
+                <div class="rating-row">
+                  <RatingInput
+                    :model-value="userRating"
+                    @change="handleRatingChange"
+                  />
+                  <button
+                    class="btn btn-icon btn-sm add-review-btn"
+                    type="button"
+                    title="Write a review"
+                    @click="openReviewModal"
+                  >
+                    ✍️
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -467,9 +514,6 @@ function goBack() {
                 @click="openCheckInModal"
               >
                 ⏱️ Log Check-in / Scrobble
-              </button>
-              <button class="btn btn-primary" type="button" @click="openReviewModal">
-                ✍️ Write Review
               </button>
             </div>
 
@@ -516,6 +560,64 @@ function goBack() {
               </div>
             </transition>
           </div>
+
+          <!-- Inline Review Modal -->
+          <transition name="fade">
+            <div v-if="showReviewModal" class="modal-overlay" @click.self="closeReviewModal">
+              <div class="review-modal card" role="dialog" aria-modal="true" aria-label="Write a review">
+                <div class="review-modal-header">
+                  <div class="review-modal-title">
+                    <span class="review-modal-icon">✍️</span>
+                    <div>
+                      <h3 class="review-modal-heading">Write a Review</h3>
+                      <p class="review-modal-sub">
+                        {{ media.title || media.name }}
+                        <template v-if="media.year"> · {{ media.year }}</template>
+                        <template v-if="userRating"> · ★ {{ userRating }}/10</template>
+                      </p>
+                    </div>
+                  </div>
+                  <button class="btn btn-icon btn-sm" type="button" aria-label="Close" @click="closeReviewModal">
+                    ✕
+                  </button>
+                </div>
+
+                <div v-if="reviewError" class="badge badge-danger error-banner">
+                  {{ reviewError }}
+                </div>
+
+                <textarea
+                  v-model="reviewBody"
+                  class="input review-modal-textarea"
+                  rows="5"
+                  placeholder="What did you think? Share your commentary, analysis, or thoughts..."
+                ></textarea>
+
+                <label class="spoiler-toggle">
+                  <input v-model="reviewSpoiler" type="checkbox" />
+                  <span>Mark review as containing spoilers</span>
+                </label>
+
+                <p class="form-hint">
+                  Reviews are published as permanent, append-only Nostr events (Kind 5401) referencing this media's canonical Content ID.
+                </p>
+
+                <div class="review-modal-actions">
+                  <button class="btn btn-secondary btn-sm" type="button" :disabled="isSubmittingReview" @click="closeReviewModal">
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="isSubmittingReview"
+                    @click="submitReview"
+                  >
+                    {{ isSubmittingReview ? 'Signing & Broadcasting...' : '⚡ Sign & Post Review' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </transition>
 
           <!-- Interactive TV Seasons & Episodes Tracker -->
           <TvEpisodeTracker
@@ -819,6 +921,23 @@ function goBack() {
   min-width: 240px;
 }
 
+.rating-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-review-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.add-review-btn:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card-hover);
+}
+
 .action-label {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -834,6 +953,95 @@ function goBack() {
   padding-top: 20px;
   border-top: 1px solid var(--border-subtle);
   flex-wrap: wrap;
+}
+
+/* Inline review modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.review-modal {
+  width: 100%;
+  max-width: 560px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.review-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-modal-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.review-modal-icon {
+  font-size: 1.4rem;
+  line-height: 1.2;
+}
+
+.review-modal-heading {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+}
+
+.review-modal-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.review-modal-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.spoiler-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.review-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 @media (max-width: 640px) {
