@@ -8,6 +8,7 @@ import { buildDTag } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
 import { getTmdbDetails } from '@/services/api/tmdb.js'
+import { getMusicDetails } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
 
@@ -144,6 +145,34 @@ async function loadMediaData() {
       }
     } catch (err) {
       console.warn('Failed to load rich multi-source details:', err)
+    }
+  } else if (mediaType === 'music' && mediaTitle && mediaTitle !== 'Loading...') {
+    try {
+      const richMusic = await getMusicDetails({
+        title: mediaTitle,
+        artist: media.value.artist || route.query.artist || '',
+        year: mediaYear,
+      })
+      if (myToken !== loadToken) return
+      if (richMusic) {
+        media.value = {
+          ...media.value,
+          contentId: contentId.value,
+          title: media.value.title || richMusic.title,
+          name: media.value.name || richMusic.name || richMusic.title,
+          artist: media.value.artist || richMusic.artist,
+          album: media.value.album || richMusic.album,
+          poster: richMusic.poster || media.value.poster,
+          banner: richMusic.banner || media.value.banner,
+          overview: richMusic.overview || media.value.overview,
+          genres: richMusic.genres?.length ? richMusic.genres : media.value.genres,
+          sources: richMusic.sources || media.value.sources,
+          previewUrl: richMusic.previewUrl || media.value.previewUrl,
+        }
+        mediaStore.cacheMediaItem(media.value)
+      }
+    } catch (err) {
+      console.warn('Failed to load rich music details:', err)
     }
   }
 }

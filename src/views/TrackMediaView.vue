@@ -7,7 +7,7 @@ import { computeContentId, buildDTag } from '@/utils/contentId.js'
 import { formatStatus } from '@/utils/formatters.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
-import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
+import { searchMusic } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
 
 const router = useRouter()
@@ -72,7 +72,7 @@ async function fetchCategorySuggestions() {
     } else if (selectedType.value === 'show') {
       providerResults = await searchTmdb(q, 'shows')
     } else if (selectedType.value === 'music') {
-      providerResults = await searchMusicBrainz(q)
+      providerResults = await searchMusic(q)
     }
 
     const seen = new Set()

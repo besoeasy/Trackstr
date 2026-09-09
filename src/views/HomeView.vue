@@ -3,7 +3,7 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
-import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
+import { searchMusic } from '@/services/api/music.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { formatRelativeTime } from '@/utils/formatters.js'
 import MediaCard from '@/components/MediaCard.vue'
@@ -69,7 +69,7 @@ async function executeSearch() {
     } else if (activeTab.value === 'shows') {
       items = await searchTmdb(q, 'shows')
     } else if (activeTab.value === 'music') {
-      items = await searchMusicBrainz(q)
+      items = await searchMusic(q)
     }
 
     // Attach computed canonical Content IDs to all results and deduplicate
