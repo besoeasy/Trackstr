@@ -15,10 +15,6 @@ const safeAvatar = computed(() => safeMediaUrl(authStore.avatarUrl))
 
 const showUserMenu = ref(false)
 
-function handleTrack() {
-  router.push('/track')
-}
-
 function handleLogin() {
   router.push('/connect')
 }
@@ -77,14 +73,6 @@ function handleLogout() {
         </router-link>
 
         <!-- Track Media (desktop) -->
-        <router-link
-          to="/track"
-          class="btn btn-primary btn-sm btn-desktop-only"
-          title="Track Movie, Series, or Music"
-        >
-          <span>+ Track</span>
-        </router-link>
-
         <!-- Nostr Auth (Extension, nsec, or Disposable) -->
         <template v-if="!authStore.isAuthenticated">
           <router-link
