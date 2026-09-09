@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
-import { resolveIpfsUrl } from '@/services/originless.js'
+import { useSettingsStore } from '@/stores/settings.js'
+import { resolveIpfsUrl, mirrorRemoteUrlToOriginless } from '@/services/originless.js'
 import { buildDTag } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
@@ -17,6 +18,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
+const settingsStore = useSettingsStore()
 
 const contentId = computed(() => route.params.contentId)
 // Route IDs that aren't 64-hex can never match a Nostr record — fail fast
@@ -75,6 +77,29 @@ const communityMeta = computed(() => {
   return mediaStore.getMediaMetadata(contentId.value)
 })
 
+// Auto-seed countdown (AGENTS.md bootstrapping): when a media item has no
+// community metadata (Kind 35403) on relays, count down and auto-publish so
+// users passively feed metadata to the network — over time almost every
+// title gets native metadata.
+const AUTO_SEED_SECONDS = 5
+const autoSeedCountdown = ref(0)
+const isAutoSeeding = ref(false)
+const autoSeedError = ref('')
+const autoSeedSuppressed = ref(false)
+const metadataChecked = ref(false)
+let autoSeedTimer = null
+
+// Only auto-seed when there's something meaningful to publish (poster,
+// backdrop, synopsis, or genres) — never an empty event.
+const hasSeedableData = computed(() => {
+  return !!(
+    media.value.poster ||
+    media.value.banner ||
+    media.value.overview ||
+    (media.value.genres && media.value.genres.length)
+  )
+})
+
 // Reviews for this media (Kind 5401)
 const mediaReviews = computed(() => {
   return mediaStore.getReviewsForMedia(contentId.value)
@@ -106,13 +131,24 @@ onMounted(async () => {
   if (!isValidContentId.value) return
   await loadMediaData()
   // Fetch Nostr state for this contentId
-  mediaStore.fetchMediaDetails(contentId.value)
+  await mediaStore.fetchMediaDetails(contentId.value).catch(() => {})
+  metadataChecked.value = true
+})
+
+onUnmounted(() => {
+  stopAutoSeedCountdown()
 })
 
 watch(() => route.params.contentId, async () => {
   if (!isValidContentId.value) return
+  stopAutoSeedCountdown()
+  autoSeedCountdown.value = 0
+  autoSeedSuppressed.value = false
+  autoSeedError.value = ''
+  metadataChecked.value = false
   await loadMediaData()
-  mediaStore.fetchMediaDetails(contentId.value)
+  await mediaStore.fetchMediaDetails(contentId.value).catch(() => {})
+  metadataChecked.value = true
 })
 
 // Direct URL / bookmark navigation starts with a 'Loading...' placeholder
@@ -124,6 +160,25 @@ watch(
     if (!stored || !stored.name && !stored.title) return
     if (media.value.title === 'Loading...' || !media.value.title) {
       media.value = { ...media.value, ...stored }
+    }
+  }
+)
+
+// Start/stop the auto-seed countdown based on metadata presence + auth.
+watch(
+  () => [metadataChecked.value, communityMeta.value, authStore.isAuthenticated, hasSeedableData.value],
+  () => {
+    if (!metadataChecked.value) return
+    if (
+      communityMeta.value ||
+      !authStore.isAuthenticated ||
+      isAutoSeeding.value ||
+      autoSeedSuppressed.value ||
+      !hasSeedableData.value
+    ) {
+      stopAutoSeedCountdown()
+    } else if (autoSeedCountdown.value <= 0) {
+      startAutoSeedCountdown()
     }
   }
 )
@@ -351,6 +406,97 @@ async function submitCheckIn() {
   }
 }
 
+function startAutoSeedCountdown() {
+  if (autoSeedTimer || isAutoSeeding.value || autoSeedSuppressed.value || communityMeta.value || !authStore.isAuthenticated) return
+  autoSeedCountdown.value = AUTO_SEED_SECONDS
+  autoSeedTimer = setInterval(() => {
+    autoSeedCountdown.value -= 1
+    if (autoSeedCountdown.value <= 0) {
+      stopAutoSeedCountdown()
+      runAutoSeed()
+    }
+  }, 1000)
+}
+
+function stopAutoSeedCountdown() {
+  if (autoSeedTimer) {
+    clearInterval(autoSeedTimer)
+    autoSeedTimer = null
+  }
+}
+
+function cancelAutoSeed() {
+  stopAutoSeedCountdown()
+  autoSeedCountdown.value = 0
+  autoSeedSuppressed.value = true
+}
+
+// Mirrors the poster/backdrop to Originless IPFS and publishes a Kind 35403
+// metadata event — the same flow as the manual seed page, run automatically.
+async function runAutoSeed() {
+  if (!authStore.isAuthenticated) return
+  isAutoSeeding.value = true
+  autoSeedError.value = ''
+  try {
+    let posterCidUri = ''
+    let bannerCidUri = ''
+    const currentPoster = media.value.poster || ''
+    const currentBanner = media.value.banner || ''
+
+    if (currentPoster && currentPoster.startsWith('ipfs://')) {
+      posterCidUri = currentPoster
+    } else if (currentPoster && currentPoster.startsWith('http')) {
+      try {
+        const res = await mirrorRemoteUrlToOriginless(
+          currentPoster,
+          `${contentId.value}-poster.jpg`,
+          settingsStore.originlessUrl
+        )
+        posterCidUri = res.ipfsUri
+      } catch (err) {
+        console.warn('Auto-seed: failed to mirror poster to IPFS:', err)
+      }
+    }
+
+    if (currentBanner && currentBanner.startsWith('http')) {
+      try {
+        const res = await mirrorRemoteUrlToOriginless(
+          currentBanner,
+          `${contentId.value}-banner.jpg`,
+          settingsStore.originlessUrl
+        )
+        bannerCidUri = res.ipfsUri
+      } catch (err) {
+        console.warn('Auto-seed: failed to mirror banner to IPFS:', err)
+      }
+    }
+
+    const mediaObj = {
+      contentId: contentId.value,
+      title: media.value.title || media.value.name,
+      name: media.value.name || media.value.title,
+      year: media.value.year,
+      type: media.value.type === 'episode' ? 'show' : media.value.type,
+      poster: posterCidUri || currentPoster,
+      banner: bannerCidUri || currentBanner,
+    }
+
+    await mediaStore.seedMetadata(mediaObj, {
+      poster: posterCidUri,
+      banner: bannerCidUri,
+      genres: media.value.genres || [],
+      lang: 'en',
+      overview: media.value.overview || '',
+    })
+  } catch (err) {
+    console.error('Auto-seed failed:', err)
+    autoSeedError.value = err.message || 'Auto-seed failed.'
+  } finally {
+    isAutoSeeding.value = false
+    autoSeedSuppressed.value = true
+  }
+}
+
 function openSeedModal() {
   if (!authStore.isAuthenticated) {
     authStore.openLoginModal(`/media/${contentId.value}/seed`)
@@ -438,19 +584,68 @@ function goBack() {
               <span class="seed-icon">🌱</span>
               <span class="seed-title">IPFS Metadata (Originless)</span>
             </div>
-            <p v-if="communityMeta?.poster" class="seed-desc">
-              Pinned on IPFS: <span class="contentid-chip">{{ communityMeta.poster.slice(0, 16) }}...</span>
-            </p>
-            <p v-else class="seed-desc">
-              No decentralized metadata event (Kind 35403) on relays yet.
-            </p>
-            <button
-              class="btn btn-outline btn-sm seed-btn"
-              type="button"
-              @click="openSeedModal"
-            >
-              {{ communityMeta ? 'Update Nostr Metadata' : 'Seed to Nostr (Originless)' }}
-            </button>
+
+            <!-- Metadata already on relays -->
+            <template v-if="communityMeta">
+              <p v-if="communityMeta.poster" class="seed-desc">
+                Pinned on IPFS: <span class="contentid-chip">{{ communityMeta.poster.slice(0, 16) }}...</span>
+              </p>
+              <p v-else class="seed-desc">
+                Metadata event (Kind 35403) exists on relays.
+              </p>
+              <button
+                class="btn btn-outline btn-sm seed-btn"
+                type="button"
+                @click="openSeedModal"
+              >
+                Update Nostr Metadata
+              </button>
+            </template>
+
+            <!-- Auto-seeding in progress -->
+            <template v-else-if="isAutoSeeding">
+              <p class="seed-desc">Publishing metadata to Nostr…</p>
+              <div class="seed-progress"><span class="seed-spinner"></span></div>
+            </template>
+
+            <!-- Countdown before auto-publish -->
+            <template v-else-if="autoSeedCountdown > 0">
+              <p class="seed-desc">
+                No metadata on relays yet — auto-seeding in
+                <strong class="seed-count">{{ autoSeedCountdown }}</strong>s…
+              </p>
+              <div class="seed-countdown-row">
+                <button
+                  class="btn btn-outline btn-sm seed-btn"
+                  type="button"
+                  @click="cancelAutoSeed"
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn-outline btn-sm seed-btn"
+                  type="button"
+                  @click="openSeedModal"
+                >
+                  Seed Manually
+                </button>
+              </div>
+            </template>
+
+            <!-- No metadata + not auto-seeding (anonymous, cancelled, or failed) -->
+            <template v-else>
+              <p class="seed-desc">
+                <template v-if="autoSeedError">Auto-seed failed: {{ autoSeedError }}</template>
+                <template v-else>No decentralized metadata event (Kind 35403) on relays yet.</template>
+              </p>
+              <button
+                class="btn btn-outline btn-sm seed-btn"
+                type="button"
+                @click="openSeedModal"
+              >
+                Seed to Nostr (Originless)
+              </button>
+            </template>
           </div>
         </div>
 
@@ -880,6 +1075,38 @@ function goBack() {
 .seed-btn {
   width: 100%;
   font-weight: 500;
+}
+
+.seed-count {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--accent-emerald);
+}
+
+.seed-countdown-row {
+  display: flex;
+  gap: 8px;
+}
+
+.seed-progress {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.seed-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-emerald);
+  border-radius: 50%;
+  animation: seed-spin 0.8s linear infinite;
+}
+
+@keyframes seed-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .header-badges {
