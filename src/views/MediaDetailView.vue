@@ -585,7 +585,8 @@ function goBack() {
               <span class="seed-title">IPFS Metadata (Originless)</span>
             </div>
 
-            <!-- Metadata already on relays -->
+            <!-- Metadata already on relays: only an edit affordance, never a
+                 "Seed" CTA — seeding is for titles with no metadata yet. -->
             <template v-if="communityMeta">
               <p v-if="communityMeta.poster" class="seed-desc">
                 Pinned on IPFS: <span class="contentid-chip">{{ communityMeta.poster.slice(0, 16) }}...</span>
@@ -598,7 +599,7 @@ function goBack() {
                 type="button"
                 @click="openSeedModal"
               >
-                Update Nostr Metadata
+                ✏️ Edit Metadata
               </button>
             </template>
 
