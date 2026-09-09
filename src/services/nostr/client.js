@@ -189,24 +189,54 @@ class NostrClient {
    * @returns {Promise<Object>} Signed event with id, pubkey, sig
    */
   async signEvent(eventTemplate) {
-    logger.info('NostrClient', `Requesting signature for kind ${eventTemplate.kind} event...`, eventTemplate)
-
     if (!this.hasExtension() || typeof window.nostr.signEvent !== 'function') {
       const msg = 'No Nostr browser extension available with signEvent function.'
       logger.error('NostrClient', msg)
       throw new Error(msg)
     }
 
+    // Ensure pubkey is attached to the event template
+    const fullTemplate = { ...eventTemplate }
+    if (!fullTemplate.pubkey) {
+      try {
+        const pk = await this.getPublicKeyFromExtension()
+        if (pk) fullTemplate.pubkey = pk
+      } catch (pkErr) {
+        logger.warn('NostrClient', 'Could not obtain pubkey prior to signing:', pkErr)
+      }
+    }
+
+    logger.info('NostrClient', `Requesting signature for kind ${fullTemplate.kind} event from extension... (Check your browser extension prompt/badge)`, fullTemplate)
+
+    // Wrap with a 45-second timeout so requests don't hang silently if a popup was blocked
+    const signPromise = window.nostr.signEvent(fullTemplate)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            'Extension signature request timed out after 45s. Please check if your browser blocked an extension popup or check the extension icon in your toolbar for a pending confirmation.'
+          )
+        )
+      }, 45000)
+    })
+
     try {
-      const signed = await window.nostr.signEvent(eventTemplate)
-      logger.info('NostrClient', `Event successfully signed! ID: ${signed.id}`)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: true, kind: fullTemplate.kind } }))
+      }
+      const signed = await Promise.race([signPromise, timeoutPromise])
+      logger.info('NostrClient', `✓ Event successfully signed! ID: ${signed.id}`, signed)
       return signed
     } catch (err) {
-      logger.error('NostrClient', 'window.nostr.signEvent() failed:', {
+      logger.error('NostrClient', 'window.nostr.signEvent() failed or was rejected:', {
         message: err.message || String(err),
-        event: eventTemplate,
+        event: fullTemplate,
       })
       throw err
+    } finally {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: false } }))
+      }
     }
   }
 
