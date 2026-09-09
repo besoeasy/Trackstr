@@ -585,7 +585,7 @@ export const useMediaStore = defineStore('media', () => {
     if (coordinate) {
       // Coordinate shape "<kind>:<pubkey>:<d-tag>"; d-tag may itself
       // contain colons (episode ":sNeM" suffix), so rejoin the tail.
-      const [, kindStr, , ...dParts] = String(coordinate).split(':')
+      const [kindStr, , ...dParts] = String(coordinate).split(':')
       const kind = Number(kindStr)
       const dTag = dParts.join(':')
       const base = dTag.split(':')[0]
