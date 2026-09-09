@@ -1,16 +1,16 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { formatStatus, getStatusColorClass, formatRelativeTime } from '@/utils/formatters.js'
-import RatingInput from '@/components/RatingInput.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
 const activeTab = ref('all') // 'all' | 'active' | 'completed' | 'plan' | 'dropped' | 'reviews'
+const actionError = ref('')
 
 function handleTrack() {
   router.push({ path: '/', query: { track: 'true' } })
@@ -21,6 +21,16 @@ onMounted(() => {
     mediaStore.syncUserData(authStore.pubkey)
   }
 })
+
+// A wallet connected after mount must still populate the library.
+watch(
+  () => authStore.pubkey,
+  (newPubkey, oldPubkey) => {
+    if (newPubkey && newPubkey !== oldPubkey) {
+      mediaStore.syncUserData(newPubkey)
+    }
+  }
+)
 
 const allTracked = computed(() => {
   return mediaStore.trackedItemsList
@@ -53,11 +63,20 @@ async function handleDelete(item) {
     return
   }
 
+  actionError.value = ''
   try {
-    const coordinate = `35402:${authStore.pubkey}:${item.dTag}`
-    await mediaStore.deleteTrackstrEvent({ coordinate, reason: 'Removed from library' })
+    // Delete both the status (35402) and the rating (35400) sharing this
+    // d-tag so no orphaned half of the record survives on relays.
+    await mediaStore.deleteTrackstrEvent({
+      coordinate: `35402:${authStore.pubkey}:${item.dTag}`,
+      reason: 'Removed from library',
+    })
+    await mediaStore.deleteTrackstrEvent({
+      coordinate: `35400:${authStore.pubkey}:${item.dTag}`,
+      reason: 'Removed from library',
+    })
   } catch (err) {
-    alert(err.message || 'Failed to delete item.')
+    actionError.value = err.message || 'Failed to delete item.'
   }
 }
 
@@ -66,10 +85,11 @@ async function handleDeleteReview(review) {
     return
   }
 
+  actionError.value = ''
   try {
     await mediaStore.deleteTrackstrEvent({ eventId: review.id, reason: 'Review deleted by author' })
   } catch (err) {
-    alert(err.message || 'Failed to delete review.')
+    actionError.value = err.message || 'Failed to delete review.'
   }
 }
 
@@ -81,6 +101,7 @@ function navigateToItem(contentId, media) {
       type: media?.type || 'movie',
       title: media?.name || '',
       year: media?.year || '',
+      artist: media?.artist || '',
     },
   })
 }
@@ -126,6 +147,9 @@ function navigateToItem(contentId, media) {
     </div>
 
     <template v-else>
+      <div v-if="actionError" class="badge badge-danger error-banner">
+        {{ actionError }}
+      </div>
       <!-- Filter Tabs -->
       <div class="tabs-bar">
         <button
@@ -182,7 +206,7 @@ function navigateToItem(contentId, media) {
       <div v-if="activeTab !== 'reviews'">
         <div v-if="filteredItems.length === 0" class="empty-state card">
           <p>No titles currently in this category.</p>
-          <router-link to="/search" class="btn btn-primary btn-sm">
+          <router-link :to="{ path: '/', query: { track: 'true' } }" class="btn btn-primary btn-sm">
             🔍 Discover Titles to Track
           </router-link>
         </div>
@@ -269,6 +293,12 @@ function navigateToItem(contentId, media) {
 </template>
 
 <style scoped>
+.error-banner {
+  display: block;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
 .library-header {
   display: flex;
   justify-content: space-between;

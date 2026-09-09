@@ -1,13 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
-import { computeContentId } from '@/utils/contentId.js'
+import { buildDTag } from '@/utils/contentId.js'
+import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
-import { SAMPLE_MEDIA, getTmdbDetails } from '@/services/api/tmdb.js'
-import { SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
+import { getTmdbDetails } from '@/services/api/tmdb.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
 import ReviewModal from '@/components/ReviewModal.vue'
@@ -15,11 +15,13 @@ import CheckInModal from '@/components/CheckInModal.vue'
 import SeedMetadataModal from '@/components/SeedMetadataModal.vue'
 
 const route = useRoute()
-const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
 const contentId = computed(() => route.params.contentId)
+// Route IDs that aren't 64-hex can never match a Nostr record — fail fast
+// instead of querying relays with garbage.
+const isValidContentId = computed(() => /^[0-9a-f]{64}$/i.test(contentId.value || ''))
 
 const media = ref({
   contentId: contentId.value,
@@ -72,50 +74,41 @@ const mediaActivity = computed(() => {
 })
 
 const effectivePoster = computed(() => {
-  if (communityMeta.value?.poster) {
-    return resolveIpfsUrl(communityMeta.value.poster)
-  }
-  return resolveIpfsUrl(media.value.poster)
+  const raw = communityMeta.value?.poster || media.value.poster || ''
+  return safeMediaUrl(resolveIpfsUrl(raw))
 })
 
 const effectiveBanner = computed(() => {
-  if (communityMeta.value?.banner) {
-    return resolveIpfsUrl(communityMeta.value.banner)
-  }
-  return resolveIpfsUrl(media.value.banner)
+  const raw = communityMeta.value?.banner || media.value.banner || ''
+  const safe = safeMediaUrl(resolveIpfsUrl(raw))
+  return safe ? `url("${safe}")` : ''
 })
 
+function safeImg(url) {
+  return safeMediaUrl(url)
+}
+
+let loadToken = 0 // latest navigation wins; stale responses are discarded
+
 onMounted(async () => {
+  if (!isValidContentId.value) return
   await loadMediaData()
   // Fetch Nostr state for this contentId
   mediaStore.fetchMediaDetails(contentId.value)
 })
 
 watch(() => route.params.contentId, async () => {
+  if (!isValidContentId.value) return
   await loadMediaData()
   mediaStore.fetchMediaDetails(contentId.value)
 })
 
 async function loadMediaData() {
+  const myToken = ++loadToken
   // Check if we already have it in media library store
   const stored = mediaStore.mediaLibrary[contentId.value]
   if (stored) {
     media.value = { ...media.value, ...stored }
-  }
-
-  // Look up in sample data
-  const sample = [...SAMPLE_MEDIA, ...SAMPLE_MUSIC].find((s) => {
-    return s.title.toLowerCase() === (route.query.title || media.value.title || '').toLowerCase()
-  })
-
-  if (sample) {
-    media.value = {
-      ...media.value,
-      ...sample,
-      contentId: contentId.value,
-      title: sample.title,
-      name: sample.title,
-    }
   }
 
   // Fetch Multi-Source Rich Details (TMDB + TVMaze) for movies & shows
@@ -131,6 +124,7 @@ async function loadMediaData() {
         mediaTitle,
         mediaYear
       )
+      if (myToken !== loadToken) return // stale navigation — discard
       if (richDetails) {
         media.value = {
           ...media.value,
@@ -156,9 +150,18 @@ async function handleStatusChange(newStatus) {
     authStore.openLoginModal()
     return
   }
-  if (!newStatus) return
 
   try {
+    if (!newStatus) {
+      // Toggle-off = untrack: NIP-09 deletion of the viewer's status address.
+      if (userStatus.value?.dTag) {
+        await mediaStore.deleteTrackstrEvent({
+          coordinate: `35402:${authStore.pubkey}:${userStatus.value.dTag}`,
+          reason: 'Untracked by user',
+        })
+      }
+      return
+    }
     await mediaStore.setStatus(media.value, newStatus)
   } catch (err) {
     console.error('Failed to update status:', err)
@@ -170,9 +173,18 @@ async function handleRatingChange(newRating) {
     authStore.openLoginModal()
     return
   }
-  if (newRating === null) return
 
   try {
+    if (newRating === null) {
+      // Rating cleared = NIP-09 deletion of the viewer's rating address.
+      if (userRating.value !== null && userRating.value !== undefined) {
+        await mediaStore.deleteTrackstrEvent({
+          coordinate: `35400:${authStore.pubkey}:${buildDTag({ contentId: contentId.value })}`,
+          reason: 'Rating cleared by user',
+        })
+      }
+      return
+    }
     await mediaStore.setRating(media.value, newRating)
   } catch (err) {
     console.error('Failed to submit rating:', err)
@@ -204,7 +216,8 @@ function openSeedModal() {
 }
 
 function copyContentId() {
-  navigator.clipboard.writeText(contentId.value)
+  if (!contentId.value) return
+  navigator.clipboard?.writeText(contentId.value)?.catch?.(() => {})
   copied.value = true
   setTimeout(() => {
     copied.value = false
@@ -213,11 +226,17 @@ function copyContentId() {
 </script>
 
 <template>
-  <div class="media-detail-view">
+  <div v-if="!isValidContentId" class="empty-community card invalid-id">
+    <div class="empty-icon">⚠️</div>
+    <h3>Invalid media ID</h3>
+    <p>This link doesn't point to a valid Trackstr media record.</p>
+    <router-link to="/" class="btn btn-primary btn-sm">Back to Explore</router-link>
+  </div>
+  <div v-else class="media-detail-view">
     <!-- Banner Backdrop -->
     <div
       class="backdrop-banner"
-      :style="effectiveBanner ? { backgroundImage: `url(${effectiveBanner})` } : {}"
+      :style="effectiveBanner ? { backgroundImage: effectiveBanner } : {}"
     >
       <div class="backdrop-gradient"></div>
     </div>
@@ -367,7 +386,7 @@ function copyContentId() {
               <div v-for="actor in media.cast" :key="actor.name" class="cast-card card">
                 <img
                   v-if="actor.profile"
-                  :src="actor.profile"
+                  :src="safeImg(actor.profile)"
                   :alt="actor.name"
                   class="cast-photo"
                   loading="lazy"
@@ -392,7 +411,7 @@ function copyContentId() {
 
             <div v-if="mediaReviews.length === 0" class="empty-community card">
               <p>No reviews written for this title on connected relays yet.</p>
-              <button class="btn btn-outline btn-sm" type="button" @click="showReviewModal = true">
+              <button class="btn btn-outline btn-sm" type="button" @click="openReviewModal">
                 Be the first to review
               </button>
             </div>
@@ -401,7 +420,7 @@ function copyContentId() {
               <div v-for="rev in mediaReviews" :key="rev.id" class="review-card card">
                 <div class="review-header">
                   <div class="review-author">
-                    <span class="contentid-chip">{{ rev.pubkey.slice(0, 8) }}...{{ rev.pubkey.slice(-4) }}</span>
+                    <span class="contentid-chip">{{ (rev.pubkey || '').slice(0, 8) }}...{{ (rev.pubkey || '').slice(-4) }}</span>
                     <span v-if="rev.rating" class="review-rating">★ {{ rev.rating }}/10</span>
                   </div>
                   <span class="review-time">{{ formatRelativeTime(rev.createdAt) }}</span>
@@ -429,7 +448,7 @@ function copyContentId() {
               <div v-for="act in mediaActivity" :key="act.id" class="activity-log-item">
                 <span class="badge" :class="getStatusColorClass(act.status)">{{ formatStatus(act.status) }}</span>
                 <span v-if="act.progress" class="activity-progress">[{{ act.progress }}]</span>
-                <span class="activity-user">{{ act.pubkey.slice(0, 8) }}...</span>
+                <span class="activity-user">{{ (act.pubkey || '').slice(0, 8) }}...</span>
                 <span v-if="act.content" class="activity-note">"{{ act.content }}"</span>
                 <span class="activity-date">{{ formatRelativeTime(act.createdAt) }}</span>
               </div>
@@ -770,6 +789,15 @@ function copyContentId() {
   border-radius: var(--radius-md);
   border: 1px dashed var(--border-subtle);
   background: var(--bg-surface);
+}
+
+.invalid-id {
+  max-width: 520px;
+  margin: 60px auto;
+}
+
+.invalid-id .empty-icon {
+  font-size: 2.2rem;
 }
 
 .reviews-list {

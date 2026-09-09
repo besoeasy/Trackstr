@@ -1,7 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
@@ -11,7 +10,6 @@ import MediaCard from '@/components/MediaCard.vue'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
 const searchInputRef = ref(null)
@@ -32,6 +30,7 @@ const recentFeed = ref([])
 const isLoadingFeed = ref(false)
 
 let debounceTimer = null
+let searchSeq = 0 // latest search wins; stale responses are discarded
 
 // Tab to media type mapper
 const activeTypeFilter = computed(() => {
@@ -60,6 +59,7 @@ async function executeSearch() {
 
   isSearching.value = true
   hasSearched.value = true
+  const mySeq = ++searchSeq
 
   try {
     let items = []
@@ -77,12 +77,18 @@ async function executeSearch() {
     const uniqueEnriched = []
 
     for (const item of items) {
-      const { contentId, canonicalString } = await computeContentId({
-        type: item.type,
-        title: item.title,
-        year: item.year,
-        artist: item.artist,
-      })
+      let contentId = ''
+      let canonicalString = ''
+      try {
+        ;({ contentId, canonicalString } = await computeContentId({
+          type: item.type,
+          title: item.title,
+          year: item.year,
+          artist: item.artist,
+        }))
+      } catch {
+        continue // unidentifiable result (e.g. music without artist) — skip it
+      }
 
       if (!seenContentIds.has(contentId)) {
         seenContentIds.add(contentId)
@@ -96,11 +102,15 @@ async function executeSearch() {
       }
     }
 
-    searchResults.value = uniqueEnriched
+    if (mySeq === searchSeq) {
+      searchResults.value = uniqueEnriched
+    }
   } catch (err) {
     console.error('Search failed:', err)
   } finally {
-    isSearching.value = false
+    if (mySeq === searchSeq) {
+      isSearching.value = false
+    }
   }
 }
 
@@ -412,7 +422,7 @@ watch(
           <div v-for="act in recentFeed" :key="act.id" class="activity-feed-card card">
             <div class="activity-card-header">
               <span class="activity-author contentid-chip">
-                {{ act.pubkey.slice(0, 8) }}...{{ act.pubkey.slice(-4) }}
+                {{ (act.pubkey || '').slice(0, 8) }}...{{ (act.pubkey || '').slice(-4) }}
               </span>
               <span class="activity-time">{{ formatRelativeTime(act.created_at) }}</span>
             </div>
@@ -421,7 +431,7 @@ watch(
               <div class="activity-badge-row">
                 <span v-if="act.kind === 5401" class="badge badge-info">Review</span>
                 <span v-else-if="act.kind === 5402" class="badge badge-success">Check-in</span>
-                <span class="activity-media-name">{{ act.tags.find((t) => t[0] === 'name')?.[1] || 'Media' }}</span>
+                <span class="activity-media-name">{{ (act.tags || []).find((t) => t[0] === 'name')?.[1] || 'Media' }}</span>
               </div>
               <p v-if="act.content" class="activity-content-text">{{ act.content }}</p>
             </div>

@@ -10,64 +10,18 @@
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
-// Sample curated items available out-of-the-box
-export const SAMPLE_MEDIA = [
-  {
-    type: 'movie',
-    title: 'Fight Club',
-    year: '1999',
-    overview: 'A ticking-time-bomb insomniac and a slippery soap salesman channel primal male aggression into a shocking new form of therapy.',
-    poster: 'https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg',
-    banner: 'https://image.tmdb.org/t/p/original/hZkgoQYus5vegHoetLkCJzb17zJ.jpg',
-    genres: ['Drama', 'Thriller'],
-  },
-  {
-    type: 'movie',
-    title: 'Inception',
-    year: '2010',
-    overview: 'Cobb, a skilled thief who commits corporate espionage by infiltrating the subconscious of his targets is offered a chance to regain his old life as payment for a task considered to be impossible: "inception".',
-    poster: 'https://image.tmdb.org/t/p/w500/ljsZTbVsrQSqZgWeep2B1QiDKuh.jpg',
-    banner: 'https://image.tmdb.org/t/p/original/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',
-    genres: ['Action', 'Sci-Fi', 'Adventure'],
-  },
-  {
-    type: 'show',
-    title: 'Breaking Bad',
-    year: '2008',
-    overview: 'A chemistry teacher diagnosed with inoperable lung cancer turns to manufacturing and selling methamphetamine with a former student in order to secure his family\'s future.',
-    poster: 'https://image.tmdb.org/t/p/w500/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg',
-    banner: 'https://image.tmdb.org/t/p/original/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
-    genres: ['Drama', 'Crime'],
-  },
-  {
-    type: 'show',
-    title: 'Stranger Things',
-    year: '2016',
-    overview: 'When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces and one strange little girl.',
-    poster: 'https://image.tmdb.org/t/p/w500/49WJfeN0moxb9IPfGn8AIqMGskD.jpg',
-    banner: 'https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg',
-    genres: ['Drama', 'Fantasy', 'Horror'],
-  },
-  {
-    type: 'movie',
-    title: 'The Matrix',
-    year: '1999',
-    overview: 'Set in the 22nd century, The Matrix tells the story of a computer hacker who joins a group of underground insurgents fighting the vast and powerful computers who now rule the earth.',
-    poster: 'https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg',
-    banner: 'https://image.tmdb.org/t/p/original/7u3XmlizLY02525hS3xJc4j5i0N.jpg',
-    genres: ['Action', 'Sci-Fi'],
-  },
-]
-
-export const DEFAULT_TMDB_KEY = 'db55323b8d3e4154498498a75642b381'
-
+/**
+ * Resolves the user-configured TMDB API key (Settings UI or env).
+ * Returns '' when none is configured — TMDB is strictly optional;
+ * open providers (TVMaze, Wikipedia) always work keyless.
+ */
 export function getTmdbApiKey() {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('trackstr_tmdb_api_key')
     if (saved && saved.trim()) return saved.trim()
   }
   const envKey = typeof import.meta !== 'undefined' && import.meta?.env?.VITE_TMDB_API_KEY
-  return (envKey && envKey.trim()) || DEFAULT_TMDB_KEY
+  return (envKey && envKey.trim()) || ''
 }
 
 export function getTmdbImageUrl(path, size = 'w500') {
@@ -302,19 +256,6 @@ export async function searchTmdb(query, filter = 'all') {
 
   const combined = Array.from(mergedMap.values())
 
-  // Also check local curated sample items
-  const qLower = q.toLowerCase()
-  const sampleMatches = SAMPLE_MEDIA.filter(
-    (item) => item.title.toLowerCase().includes(qLower) || item.genres.some((g) => g.toLowerCase().includes(qLower))
-  )
-
-  for (const sample of sampleMatches) {
-    const key = getNormKey(sample)
-    if (!mergedMap.has(key)) {
-      combined.unshift({ ...sample, sources: ['Curated'] })
-    }
-  }
-
   return combined
 }
 
@@ -431,17 +372,6 @@ export async function getTmdbDetails(type, id, title = '', year = '') {
       }
     } catch (tvErr) {
       console.warn('TVMaze enrichment failed:', tvErr)
-    }
-  }
-
-  // 3. Fallback to sample items if nothing was found
-  if (!result) {
-    const lookupKey = (title || String(id)).toLowerCase()
-    const found = SAMPLE_MEDIA.find(
-      (m) => m.type === type && (m.title.toLowerCase() === lookupKey || m.id === id)
-    )
-    if (found) {
-      result = { ...found, sources: ['Curated'] }
     }
   }
 

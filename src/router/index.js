@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
-import SearchView from '@/views/SearchView.vue'
 import MediaDetailView from '@/views/MediaDetailView.vue'
 import LibraryView from '@/views/LibraryView.vue'
 import ActivityView from '@/views/ActivityView.vue'
@@ -30,6 +29,11 @@ const routes = [
     path: '/activity',
     name: 'activity',
     component: ActivityView,
+  },
+  // Unknown paths land home instead of rendering a bare navbar.
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/',
   },
 ]
 

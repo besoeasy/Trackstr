@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
@@ -10,6 +10,12 @@ const mediaStore = useMediaStore()
 const feed = ref([])
 const isLoading = ref(false)
 const filterType = ref('all') // 'all' | 'reviews' | 'scrobbles'
+
+const filteredFeed = computed(() => {
+  if (filterType.value === 'reviews') return feed.value.filter((e) => e?.kind === 5401)
+  if (filterType.value === 'scrobbles') return feed.value.filter((e) => e?.kind === 5402)
+  return feed.value
+})
 
 onMounted(async () => {
   await loadActivity()
@@ -27,16 +33,25 @@ async function loadActivity() {
   }
 }
 
+function safeTags(tags) {
+  return Array.isArray(tags) ? tags : []
+}
+
 function getMediaTitle(tags) {
-  return tags.find((t) => t[0] === 'name')?.[1] || 'Media'
+  return safeTags(tags).find((t) => t[0] === 'name')?.[1] || 'Media'
 }
 
 function getMediaType(tags) {
-  return tags.find((t) => t[0] === 'type')?.[1] || 'movie'
+  return safeTags(tags).find((t) => t[0] === 'type')?.[1] || 'movie'
 }
 
 function getContentId(tags) {
-  return tags.find((t) => t[0] === 'contentid')?.[1] || tags.find((t) => t[0] === 'd')?.[1] || ''
+  const t = safeTags(tags)
+  return t.find((t) => t[0] === 'contentid')?.[1] || t.find((t) => t[0] === 'd')?.[1] || ''
+}
+
+function getTagValue(tags, name) {
+  return safeTags(tags).find((t) => t[0] === name)?.[1]
 }
 
 function navigateToMedia(tags) {
@@ -102,20 +117,21 @@ function navigateToMedia(tags) {
       <p>Connecting to relays and fetching events...</p>
     </div>
 
-    <div v-else-if="feed.length === 0" class="empty-state card">
-      <p>No activity events detected on active relays.</p>
+    <div v-else-if="filteredFeed.length === 0" class="empty-state card">
+      <p v-if="feed.length === 0">No activity events detected on active relays.</p>
+      <p v-else>No {{ filterType === 'reviews' ? 'reviews' : 'check-ins / scrobbles' }} in this feed yet.</p>
       <p class="form-hint">Track a movie, write a review, or check in to broadcast your activity.</p>
     </div>
 
     <div v-else class="timeline-container">
       <div
-        v-for="evt in feed"
+        v-for="evt in filteredFeed"
         :key="evt.id"
         class="timeline-item card"
       >
         <div class="timeline-header">
           <div class="timeline-user">
-            <span class="contentid-chip">{{ evt.pubkey.slice(0, 8) }}...{{ evt.pubkey.slice(-4) }}</span>
+            <span class="contentid-chip">{{ (evt.pubkey || '').slice(0, 8) }}...{{ (evt.pubkey || '').slice(-4) }}</span>
             <span v-if="evt.kind === 5401" class="badge badge-info">Review</span>
             <span v-else-if="evt.kind === 5402" class="badge badge-success">Check-in</span>
           </div>
@@ -125,11 +141,11 @@ function navigateToMedia(tags) {
         <div class="timeline-media" @click="navigateToMedia(evt.tags)">
           <span class="badge badge-primary">{{ getMediaType(evt.tags) }}</span>
           <span class="timeline-media-title">{{ getMediaTitle(evt.tags) }}</span>
-          <span v-if="evt.tags.find(t => t[0] === 'rating')" class="timeline-rating">
-            ★ {{ evt.tags.find(t => t[0] === 'rating')[1] }}/10
+          <span v-if="getTagValue(evt.tags, 'rating')" class="timeline-rating">
+            ★ {{ getTagValue(evt.tags, 'rating') }}/10
           </span>
-          <span v-if="evt.tags.find(t => t[0] === 'status')" class="badge badge-neutral">
-            {{ formatStatus(evt.tags.find(t => t[0] === 'status')[1]) }}
+          <span v-if="getTagValue(evt.tags, 'status')" class="badge badge-neutral">
+            {{ formatStatus(getTagValue(evt.tags, 'status')) }}
           </span>
         </div>
 
