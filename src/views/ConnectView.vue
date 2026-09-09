@@ -1,33 +1,22 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
-import { bunkerService } from '@/services/nostr/bunker.js'
-import { isSafeHttpUrl } from '@/utils/urls.js'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
-// If extension is available, default to extension; otherwise default to bunker
-const activeTab = ref(nostrClient.hasExtension() ? 'extension' : 'bunker')
-const bunkerInput = ref(localStorage.getItem('trackstr_bunker_input') || '')
-const pendingAuthUrl = ref('')
+// If extension is available, default to extension; otherwise default to nsec
+const activeTab = ref(nostrClient.hasExtension() ? 'extension' : 'nsec')
+const nsecInput = ref('')
 const hasExtension = ref(nostrClient.hasExtension())
 
-// Signer-supplied authorization URLs are untrusted input — only http(s) reaches href
-const safeAuthUrl = computed(() => (isSafeHttpUrl(pendingAuthUrl.value) ? pendingAuthUrl.value : ''))
-
-// QR Code state for Bunker connection
-const qrDataUrl = ref('')
-const nostrConnectUri = ref('')
-const isGeneratingQr = ref(false)
-const qrError = ref('')
-const selectedRelays = ref(['wss://nos.lol', 'wss://relay.primal.net'])
+// Disposable account state
+const disposableNsec = ref('')
+const showDisposableBackup = ref(false)
 const copied = ref(false)
-const showManualInput = ref(false)
-let abortController = null
 
 function goBack() {
   const returnTo = route.query.returnTo
@@ -51,78 +40,6 @@ function handleLoginSuccess() {
   }
 }
 
-function onBunkerAuth(e) {
-  if (e.detail?.url) {
-    pendingAuthUrl.value = e.detail.url
-  }
-}
-
-async function initQrSession() {
-  if (abortController) {
-    abortController.abort()
-  }
-  abortController = new AbortController()
-  isGeneratingQr.value = true
-  qrError.value = ''
-
-  try {
-    const session = await bunkerService.generateNostrConnectSession({
-      relays: selectedRelays.value,
-      name: 'Trackstr',
-    })
-    qrDataUrl.value = session.qrDataUrl
-    nostrConnectUri.value = session.uri
-    isGeneratingQr.value = false
-
-    // Start background listening on the popular relay
-    authStore
-      .loginWithNostrConnectUri(session.uri, {
-        abortSignal: abortController.signal,
-        onAuthUrl: (url) => {
-          pendingAuthUrl.value = url
-        },
-      })
-      .then((res) => {
-        if (res) {
-          handleLoginSuccess()
-        }
-      })
-      .catch(() => {
-        // Silently handled or surfaced in authStore.loginError
-      })
-  } catch (err) {
-    isGeneratingQr.value = false
-    qrError.value = err?.message || 'Failed to generate a Nostr Connect session.'
-    console.error('Failed to generate Nostr Connect session:', err)
-  }
-}
-
-function handleCopyLink() {
-  if (!nostrConnectUri.value) return
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(nostrConnectUri.value).catch(() => {})
-  }
-  copied.value = true
-  setTimeout(() => {
-    copied.value = false
-  }, 2000)
-}
-
-function handleRefreshQr() {
-  initQrSession()
-}
-
-watch(activeTab, (tab) => {
-  if (tab === 'bunker') {
-    initQrSession()
-  } else {
-    if (abortController) {
-      abortController.abort()
-      abortController = null
-    }
-  }
-})
-
 onMounted(() => {
   // If already authenticated, redirect
   if (authStore.isAuthenticated) {
@@ -130,18 +47,6 @@ onMounted(() => {
     return
   }
   hasExtension.value = nostrClient.hasExtension()
-  window.addEventListener('trackstr:bunker-auth', onBunkerAuth)
-  if (activeTab.value === 'bunker') {
-    initQrSession()
-  }
-})
-
-onUnmounted(() => {
-  window.removeEventListener('trackstr:bunker-auth', onBunkerAuth)
-  if (abortController) {
-    abortController.abort()
-    abortController = null
-  }
 })
 
 async function handleExtensionConnect() {
@@ -153,41 +58,44 @@ async function handleExtensionConnect() {
   }
 }
 
-async function handleBunkerConnect() {
-  if (!bunkerInput.value.trim()) return
-  if (abortController) {
-    abortController.abort()
-    abortController = null
-  }
-  pendingAuthUrl.value = ''
+async function handleNsecConnect() {
+  if (!nsecInput.value.trim()) return
   try {
-    await authStore.loginWithBunker(bunkerInput.value.trim(), {
-      onAuthUrl: (url) => {
-        pendingAuthUrl.value = url
-      },
-    })
+    await authStore.loginWithNsec(nsecInput.value.trim())
     handleLoginSuccess()
   } catch (err) {
     // Error is captured in authStore.loginError
   }
 }
 
-function selectPreset(suffix) {
-  if (bunkerInput.value && bunkerInput.value.includes('@')) {
-    const user = bunkerInput.value.split('@')[0]
-    bunkerInput.value = `${user}${suffix}`
-  } else if (bunkerInput.value && !bunkerInput.value.startsWith('bunker://')) {
-    bunkerInput.value = `${bunkerInput.value}${suffix}`
-  } else {
-    bunkerInput.value = suffix.startsWith('@') ? `user${suffix}` : suffix
+async function handleCreateDisposable() {
+  disposableNsec.value = ''
+  showDisposableBackup.value = false
+  try {
+    const result = await authStore.createDisposableAccount()
+    disposableNsec.value = result.nsec
+    showDisposableBackup.value = true
+  } catch (err) {
+    // Error is captured in authStore.loginError
   }
 }
 
-function navigateToDiagnostics() {
-  if (abortController) {
-    abortController.abort()
-    abortController = null
+function handleCopyNsec() {
+  if (!disposableNsec.value) return
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(disposableNsec.value).catch(() => {})
   }
+  copied.value = true
+  setTimeout(() => {
+    copied.value = false
+  }, 2000)
+}
+
+function handleContinueToApp() {
+  handleLoginSuccess()
+}
+
+function navigateToDiagnostics() {
   router.push('/diagnostics')
 }
 </script>
@@ -237,14 +145,27 @@ function navigateToDiagnostics() {
 
         <button
           class="method-tab"
-          :class="{ active: activeTab === 'bunker' }"
+          :class="{ active: activeTab === 'nsec' }"
           type="button"
-          @click="activeTab = 'bunker'"
+          @click="activeTab = 'nsec'"
         >
-          <span class="tab-icon">⚡</span>
+          <span class="tab-icon">🔑</span>
           <div class="tab-text">
-            <span class="tab-title">Bunker (NIP-46)</span>
-            <span class="tab-sub">Remote Signer & QR</span>
+            <span class="tab-title">nsec Key</span>
+            <span class="tab-sub">Paste private key</span>
+          </div>
+        </button>
+
+        <button
+          class="method-tab"
+          :class="{ active: activeTab === 'disposable' }"
+          type="button"
+          @click="activeTab = 'disposable'"
+        >
+          <span class="tab-icon">🎭</span>
+          <div class="tab-text">
+            <span class="tab-title">Disposable</span>
+            <span class="tab-sub">Instant throwaway account</span>
           </div>
         </button>
       </div>
@@ -266,7 +187,8 @@ function navigateToDiagnostics() {
           <div v-if="!hasExtension" class="extension-guide">
             <p>If you don't have an extension installed, you can:</p>
             <ul>
-              <li>Switch to the <strong>Bunker (NIP-46)</strong> tab to sign in with a remote signer like nsec.app or Amber.</li>
+              <li>Switch to the <strong>nsec Key</strong> tab to paste an existing private key.</li>
+              <li>Or create a <strong>Disposable</strong> account for instant, throwaway use.</li>
               <li>Or install the <a href="https://getalby.com/" target="_blank" rel="noopener">Alby extension</a> or <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener">nos2x</a> in your browser.</li>
             </ul>
           </div>
@@ -285,164 +207,100 @@ function navigateToDiagnostics() {
         </div>
       </div>
 
-      <!-- Bunker Option Tab Content -->
-      <div v-if="activeTab === 'bunker'" class="tab-content">
+      <!-- nsec Key Option Tab Content -->
+      <div v-if="activeTab === 'nsec'" class="tab-content">
         <div class="option-description">
           <p>
-            Connect using <strong>NIP-46 Remote Signing</strong>. Works on any device without installing a browser extension.
+            Paste an existing <strong>nsec</strong> private key to log in. Events are signed locally in your browser.
           </p>
         </div>
 
-        <!-- QR Code Connection Card -->
-        <div class="qr-connection-card">
-          <div class="qr-card-header">
-            <span class="qr-badge-title">Scan with Nostr Signer</span>
-            <div class="relay-pulse-indicator" title="Connected to popular Nostr relay">
-              <span class="pulse-dot"></span>
-              <span class="relay-name">Relay: {{ selectedRelays[0].replace('wss://', '') }}</span>
-            </div>
-          </div>
-
-          <!-- QR Code Canvas / Image -->
-          <div class="qr-frame">
-            <div v-if="isGeneratingQr" class="qr-placeholder">
-              <div class="btn-spinner large-spinner"></div>
-              <span class="qr-loading-text">Generating secure QR code...</span>
-            </div>
-            <img
-              v-else-if="qrDataUrl"
-              :src="qrDataUrl"
-              alt="Scan to Connect Nostr Bunker"
-              class="qr-code-img"
-            />
-          </div>
-
-          <p class="qr-caption">
-            Scan with <strong>Amber</strong> (Android), <strong>Keystr</strong>, <strong>nsec.app</strong>, or any remote signer app to authorize Trackstr.
+        <div class="form-group">
+          <label class="form-label" for="nsec-input">nsec private key</label>
+          <input
+            id="nsec-input"
+            v-model="nsecInput"
+            type="password"
+            class="form-input"
+            placeholder="nsec1..."
+            autocomplete="off"
+            spellcheck="false"
+            :disabled="authStore.isLoggingIn"
+            @keydown.enter="handleNsecConnect"
+          />
+          <p class="form-hint">
+            Accepts <code>nsec1...</code>, <code>nostr:nsec1...</code>, or a 64-character hex key.
           </p>
+        </div>
 
-          <!-- Quick Connection Action Buttons -->
-          <div class="qr-actions-row">
+        <div class="security-note">
+          <span class="security-note-icon">⚠️</span>
+          <p>
+            Your nsec is stored in this browser to sign events. Anyone with access to this browser profile can use it.
+            For long-lived keys, prefer a <strong>NIP-07 extension</strong>.
+          </p>
+        </div>
+
+        <div class="action-row">
+          <button
+            class="btn btn-primary btn-block"
+            type="button"
+            :disabled="authStore.isLoggingIn || !nsecInput.trim()"
+            @click="handleNsecConnect"
+          >
+            <span v-if="authStore.isLoggingIn" class="btn-spinner"></span>
+            <span>{{ authStore.isLoggingIn ? authStore.loginStatusMessage || 'Connecting...' : 'Log In with nsec' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Disposable Account Option Tab Content -->
+      <div v-if="activeTab === 'disposable'" class="tab-content">
+        <div class="option-description">
+          <p>
+            Create a <strong>fresh, disposable Nostr identity</strong> instantly — no extension, no existing key needed.
+            Perfect for trying Trackstr or for throwaway accounts.
+          </p>
+        </div>
+
+        <div v-if="!showDisposableBackup" class="action-row">
+          <button
+            class="btn btn-primary btn-block"
+            type="button"
+            :disabled="authStore.isLoggingIn"
+            @click="handleCreateDisposable"
+          >
+            <span v-if="authStore.isLoggingIn" class="btn-spinner"></span>
+            <span>{{ authStore.isLoggingIn ? authStore.loginStatusMessage || 'Generating...' : '🎭 Create Disposable Account' }}</span>
+          </button>
+        </div>
+
+        <!-- Backup nsec callout after creation -->
+        <div v-if="showDisposableBackup" class="disposable-backup-card">
+          <div class="backup-head">
+            <span class="backup-icon">🔑</span>
+            <strong>Back up your new key</strong>
+          </div>
+          <p class="backup-desc">
+            This is the only time your disposable nsec is shown. Save it if you want to keep this identity — otherwise it's lost forever when you log out.
+          </p>
+          <div class="backup-nsec-box">
+            <code class="backup-nsec">{{ disposableNsec }}</code>
             <button
               class="btn btn-secondary btn-sm"
               type="button"
-              :title="nostrConnectUri"
-              @click="handleCopyLink"
+              @click="handleCopyNsec"
             >
-              <span>{{ copied ? '✓ Copied Link' : '📋 Copy Link' }}</span>
-            </button>
-
-            <a
-              v-if="nostrConnectUri"
-              :href="nostrConnectUri"
-              class="btn btn-primary btn-sm btn-open-signer"
-              title="Open directly in installed signer app on mobile"
-            >
-              <span>⚡ Open Signer</span>
-            </a>
-
-            <button
-              class="btn btn-icon btn-sm"
-              type="button"
-              title="Generate fresh QR code"
-              @click="handleRefreshQr"
-            >
-              🔄
+              {{ copied ? '✓ Copied' : '📋 Copy' }}
             </button>
           </div>
-        </div>
-
-        <!-- Remote Auth URL Callout -->
-        <div v-if="qrError" class="login-error-banner">
-          <div class="error-head">
-            <span class="error-icon">⚠️</span>
-            <strong>QR Session Failed</strong>
-          </div>
-          <p class="error-msg">{{ qrError }}</p>
-        </div>
-
-        <div v-if="safeAuthUrl" class="auth-url-card">
-          <div class="auth-url-icon">🔐</div>
-          <div class="auth-url-body">
-            <strong>Signer Authorization Required</strong>
-            <p>Your remote signer requires approval. Click the button below to complete authorization in a new tab:</p>
-            <a
-              :href="safeAuthUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn btn-sm btn-primary auth-open-btn"
-            >
-              Open Authorization Window ↗
-            </a>
-          </div>
-        </div>
-
-        <!-- Connecting Status -->
-        <div v-if="authStore.isLoggingIn" class="bunker-status-box">
-          <span class="btn-spinner"></span>
-          <span>{{ authStore.loginStatusMessage || 'Listening for remote signer connection on relay...' }}</span>
-        </div>
-
-        <!-- Manual Fallback Collapsible -->
-        <div class="manual-toggle-section">
           <button
-            class="manual-toggle-btn"
+            class="btn btn-primary btn-block"
             type="button"
-            @click="showManualInput = !showManualInput"
+            @click="handleContinueToApp"
           >
-            <span class="toggle-arrow">{{ showManualInput ? '▼' : '▶' }}</span>
-            <span>Or enter bunker:// URI or NIP-05 address</span>
+            Continue to Trackstr →
           </button>
-
-          <div v-if="showManualInput" class="manual-input-box">
-            <div class="form-group">
-              <input
-                id="bunker-input"
-                v-model="bunkerInput"
-                type="text"
-                class="form-input"
-                placeholder="e.g. user@nsec.app or bunker://<pubkey>?relay=wss://..."
-                :disabled="authStore.isLoggingIn"
-                @keydown.enter="handleBunkerConnect"
-              />
-            </div>
-
-            <!-- Quick Presets -->
-            <div class="preset-row">
-              <span class="preset-label">Quick helpers:</span>
-              <button
-                class="preset-chip"
-                type="button"
-                @click="selectPreset('@nsec.app')"
-              >
-                @nsec.app
-              </button>
-              <button
-                class="preset-chip"
-                type="button"
-                @click="selectPreset('@primal.net')"
-              >
-                @primal.net
-              </button>
-              <button
-                class="preset-chip"
-                type="button"
-                @click="selectPreset('bunker://')"
-              >
-                bunker://
-              </button>
-            </div>
-
-            <button
-              class="btn btn-secondary btn-block btn-sm"
-              type="button"
-              :disabled="authStore.isLoggingIn || !bunkerInput.trim()"
-              @click="handleBunkerConnect"
-            >
-              <span v-if="authStore.isLoggingIn" class="btn-spinner"></span>
-              <span>{{ authStore.isLoggingIn ? 'Connecting...' : 'Connect via Address' }}</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -462,7 +320,7 @@ function navigateToDiagnostics() {
 
       <!-- Footer -->
       <div class="connect-footer">
-        <span class="footer-hint">🔒 Keys never leave your signer. Trackstr only receives event signatures.</span>
+        <span class="footer-hint">🔒 With nsec login, keys stay in your browser and events are signed locally.</span>
         <button class="btn btn-outline btn-xs" type="button" @click="navigateToDiagnostics">
           Diagnostics 🐞
         </button>
@@ -545,7 +403,7 @@ function navigateToDiagnostics() {
 
 .method-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -712,188 +570,17 @@ function navigateToDiagnostics() {
   }
 }
 
-/* Bunker QR Code Styles */
-.qr-connection-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 24px 20px;
-  background: #000000;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  margin-bottom: 22px;
-  transition: border-color var(--transition-fast);
-}
-
-.qr-connection-card:hover {
-  border-color: var(--border-hover);
-}
-
-.qr-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
+/* nsec & Disposable Account Styles */
+.form-group {
   margin-bottom: 16px;
 }
 
-.qr-badge-title {
-  font-weight: 600;
-  font-size: 0.88rem;
-  color: var(--text-main);
-  letter-spacing: -0.01em;
-}
-
-.relay-pulse-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #111111;
-  border: 1px solid #262626;
-  padding: 3px 8px;
-  border-radius: var(--radius-xs);
-}
-
-.relay-name {
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-  color: var(--accent-emerald);
-  font-weight: 500;
-}
-
-.pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-emerald);
-}
-
-.qr-frame {
-  background: #ffffff;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16px;
-  width: 224px;
-  height: 224px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.qr-code-img {
-  width: 200px;
-  height: 200px;
+.form-label {
   display: block;
-  image-rendering: pixelated;
-}
-
-.qr-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  color: #000000;
-}
-
-.qr-loading-text {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #555555;
-}
-
-.qr-caption {
   font-size: 0.82rem;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  margin: 0 0 16px 0;
-  max-width: 380px;
-}
-
-.qr-actions-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  justify-content: center;
-}
-
-.btn-open-signer {
-  text-decoration: none;
-}
-
-.auth-url-card {
-  display: flex;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius-md);
-  padding: 14px;
-  margin-bottom: 18px;
-}
-
-.auth-url-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.auth-url-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.85rem;
-}
-
-.auth-open-btn {
-  align-self: flex-start;
-  margin-top: 4px;
   font-weight: 600;
-  text-decoration: none;
-}
-
-.bunker-status-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
   color: var(--text-secondary);
-  margin-bottom: 18px;
-}
-
-.manual-toggle-section {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 14px;
-  margin-top: 14px;
-}
-
-.manual-toggle-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  transition: color var(--transition-fast);
-}
-
-.manual-toggle-btn:hover {
-  color: var(--text-main);
-}
-
-.toggle-arrow {
-  font-size: 0.7rem;
-}
-
-.manual-input-box {
-  margin-top: 12px;
+  margin-bottom: 6px;
 }
 
 .form-input {
@@ -907,42 +594,88 @@ function navigateToDiagnostics() {
   font-family: var(--font-mono);
 }
 
-.preset-row {
+.form-hint {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin: 6px 0 0 0;
+  line-height: 1.4;
+}
+
+.form-hint code {
+  font-family: var(--font-mono);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+}
+
+.security-note {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+}
+
+.security-note-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.security-note p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.disposable-backup-card {
+  padding: 18px;
+  background: var(--bg-card);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+}
+
+.backup-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
 }
 
-.preset-label {
-  font-size: 0.76rem;
-  color: var(--text-muted);
+.backup-icon {
+  font-size: 1.2rem;
 }
 
-.preset-chip {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+.backup-desc {
+  font-size: 0.82rem;
   color: var(--text-secondary);
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-  padding: 2px 7px;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  line-height: 1.5;
+  margin: 0 0 14px 0;
 }
 
-.preset-chip:hover {
-  background: #ffffff;
-  color: #000000;
-  border-color: #ffffff;
-}
-
-[data-theme='light'] .preset-chip:hover {
+.backup-nsec-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: #000000;
-  color: #ffffff;
-  border-color: #000000;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.backup-nsec {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent-emerald);
+  word-break: break-all;
+  line-height: 1.4;
 }
 
 .login-error-banner {
