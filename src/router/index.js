@@ -5,7 +5,6 @@ import LibraryView from '@/views/LibraryView.vue'
 import ActivityView from '@/views/ActivityView.vue'
 import ConnectView from '@/views/ConnectView.vue'
 import SettingsView from '@/views/SettingsView.vue'
-import DebugView from '@/views/DebugView.vue'
 import TrackMediaView from '@/views/TrackMediaView.vue'
 import SeedMetadataView from '@/views/SeedMetadataView.vue'
 
@@ -30,12 +29,6 @@ const routes = [
     path: '/settings',
     name: 'settings',
     component: SettingsView,
-  },
-  {
-    path: '/diagnostics',
-    name: 'diagnostics',
-    alias: '/debug',
-    component: DebugView,
   },
   {
     path: '/track',

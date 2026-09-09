@@ -42,16 +42,6 @@ function handleLogout() {
       </nav>
 
       <div class="nav-actions">
-        <!-- Debug Diagnostics (desktop) -->
-        <!-- Debug Diagnostics (desktop) -->
-        <router-link
-          to="/diagnostics"
-          class="btn btn-icon btn-desktop-only"
-          title="Extension & Network Diagnostics (Debug Logs)"
-        >
-          <span style="font-size: 13px;">🐞</span>
-        </router-link>
-
         <!-- Theme toggle (always available) -->
         <button
           class="btn btn-icon btn-theme-toggle"
@@ -119,9 +109,6 @@ function handleLogout() {
               </router-link>
               <router-link to="/settings" class="dropdown-item" @click="showUserMenu = false">
                 ⚙️ Settings & Relays
-              </router-link>
-              <router-link to="/diagnostics" class="dropdown-item" @click="showUserMenu = false">
-                🐞 Diagnostics Logs
               </router-link>
               <button class="dropdown-item dropdown-logout" type="button" @click="handleLogout">
                 🚪 Log Out

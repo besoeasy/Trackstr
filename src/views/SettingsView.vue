@@ -220,9 +220,6 @@ function resetOriginless() {
 
       <!-- Footer Actions -->
       <footer class="settings-footer">
-        <router-link to="/diagnostics" class="btn btn-outline btn-sm">
-          🐞 Diagnostics & Logs
-        </router-link>
         <div class="save-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="goBack">Back</button>
           <button class="btn btn-primary btn-sm" type="button" @click="handleSaveSettings">Save Preferences</button>

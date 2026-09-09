@@ -94,10 +94,6 @@ function handleCopyNsec() {
 function handleContinueToApp() {
   handleLoginSuccess()
 }
-
-function navigateToDiagnostics() {
-  router.push('/diagnostics')
-}
 </script>
 
 <template>
@@ -311,19 +307,11 @@ function navigateToDiagnostics() {
           <strong>Connection Failed</strong>
         </div>
         <p class="error-msg">{{ authStore.loginError }}</p>
-        <div class="error-actions">
-          <button class="btn btn-outline btn-xs" type="button" @click="navigateToDiagnostics">
-            Open Diagnostics & Logs 🐞
-          </button>
-        </div>
       </div>
 
       <!-- Footer -->
       <div class="connect-footer">
         <span class="footer-hint">🔒 With nsec login, keys stay in your browser and events are signed locally.</span>
-        <button class="btn btn-outline btn-xs" type="button" @click="navigateToDiagnostics">
-          Diagnostics 🐞
-        </button>
       </div>
     </div>
   </div>
