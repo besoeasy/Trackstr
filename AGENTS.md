@@ -1,7 +1,7 @@
 # Trackstr — AGENTS.md
 
 Trackstr is an open, Nostr-powered media tracking + social platform (movies, shows, music).
-Stack: Vue.js + Vite + TypeScript. Media storage: IPFS via [Originless](https://github.com/besoeasy/Originless) (free public instance: https://originless.gupt.app/). Metadata: TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
+Stack: Vue.js + Vite + JavaScript. Media storage: IPFS via [Originless](https://github.com/besoeasy/Originless) (free public instance: https://originless.gupt.app/). Metadata: TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
 Portable social layer: activity, ratings, reviews, social graph live on Nostr, owned by the user's identity.
 
 ## Architecture Philosophy: Mutable State vs. Immutable Logs
