@@ -7,6 +7,7 @@ import { safeMediaUrl } from '@/utils/urls.js'
 import SettingsModal from './SettingsModal.vue'
 import DebugModal from './DebugModal.vue'
 import LoginModal from './LoginModal.vue'
+import AddMediaModal from './AddMediaModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,9 +20,10 @@ const safeAvatar = computed(() => safeMediaUrl(authStore.avatarUrl))
 const showSettings = ref(false)
 const showDebug = ref(false)
 const showUserMenu = ref(false)
+const showAddMediaModal = ref(false)
 
 function handleTrack() {
-  router.push({ path: '/', query: { track: 'true' } })
+  showAddMediaModal.value = true
 }
 
 function handleLogin() {
@@ -222,6 +224,11 @@ function handleLogout() {
     v-if="authStore.showLoginModal"
     @close="authStore.closeLoginModal"
     @open-debug="showDebug = true"
+  />
+  <AddMediaModal
+    v-if="showAddMediaModal"
+    @close="showAddMediaModal = false"
+    @saved="showAddMediaModal = false"
   />
   <SettingsModal v-if="showSettings" @close="showSettings = false" />
   <DebugModal v-if="showDebug" @close="showDebug = false" />

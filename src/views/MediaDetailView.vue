@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
@@ -14,6 +14,7 @@ import ReviewModal from '@/components/ReviewModal.vue'
 import SeedMetadataModal from '@/components/SeedMetadataModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const mediaStore = useMediaStore()
 
@@ -267,6 +268,14 @@ function copyContentId() {
     copied.value = false
   }, 2000)
 }
+
+function goBack() {
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/')
+  }
+}
 </script>
 
 <template>
@@ -277,6 +286,17 @@ function copyContentId() {
     <router-link to="/" class="btn btn-primary btn-sm">Back to Explore</router-link>
   </div>
   <div v-else class="media-detail-view">
+    <!-- Floating Native Back Button -->
+    <button
+      class="back-nav-btn"
+      type="button"
+      title="Back to previous page"
+      @click="goBack"
+    >
+      <span class="back-icon">‹</span>
+      <span class="back-text">Back</span>
+    </button>
+
     <!-- Banner Backdrop -->
     <div
       class="backdrop-banner"
