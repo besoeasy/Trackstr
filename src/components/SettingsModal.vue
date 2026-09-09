@@ -14,17 +14,25 @@ const newRelay = ref('')
 const tmdbKey = ref(settingsStore.tmdbApiKey)
 const originlessNode = ref(settingsStore.originlessUrl)
 const hasExtension = ref(nostrClient.hasExtension())
+const formError = ref('')
 
 function handleAddRelay() {
-  if (newRelay.value.trim()) {
-    settingsStore.addRelay(newRelay.value.trim())
+  formError.value = ''
+  if (!newRelay.value.trim()) return
+  if (settingsStore.addRelay(newRelay.value.trim())) {
     newRelay.value = ''
+  } else {
+    formError.value = settingsStore.settingsError || 'Invalid relay URL.'
   }
 }
 
 function handleSaveSettings() {
+  formError.value = ''
   settingsStore.setTmdbApiKey(tmdbKey.value)
-  settingsStore.setOriginlessUrl(originlessNode.value)
+  if (!settingsStore.setOriginlessUrl(originlessNode.value)) {
+    formError.value = settingsStore.settingsError || 'Invalid Originless node URL.'
+    return
+  }
   emit('close')
 }
 
@@ -42,6 +50,9 @@ function resetOriginless() {
       </div>
 
       <div class="modal-body">
+        <div v-if="formError" class="badge badge-danger error-banner">
+          {{ formError }}
+        </div>
         <!-- Nostr Signer Status -->
         <div class="form-group">
           <label class="form-label">Nostr Signer Status (NIP-07 / NIP-46 Bunker)</label>
@@ -143,18 +154,19 @@ function resetOriginless() {
 
         <!-- TMDB Free API Key -->
         <div class="form-group">
-          <label class="form-label">TMDB API Key (Free Tier)</label>
+          <label class="form-label">TMDB API Key (Free Tier, Optional)</label>
           <input
             v-model="tmdbKey"
-            type="text"
+            type="password"
             class="input"
             placeholder="Enter your free TMDB API key"
+            autocomplete="off"
           />
           <p class="form-hint">
             Used for client-side movie & show metadata. You can get a free API key at
             <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener" class="link">
               themoviedb.org
-            </a>. If left empty, curated sample media is displayed.
+            </a>. If left empty, TMDB is skipped and open providers (TVMaze, Wikipedia) are used.
           </p>
         </div>
       </div>
@@ -168,6 +180,12 @@ function resetOriginless() {
 </template>
 
 <style scoped>
+.error-banner {
+  display: block;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
 .status-box {
   background: var(--bg-card);
   padding: 12px;

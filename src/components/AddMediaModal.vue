@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { computeContentId, buildDTag } from '@/utils/contentId.js'
-import { formatStatus, getStatusColorClass } from '@/utils/formatters.js'
+import { formatStatus } from '@/utils/formatters.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusicBrainz } from '@/services/api/musicbrainz.js'
@@ -149,6 +149,10 @@ async function updateCanonicalHash() {
     })
   } catch (err) {
     console.warn('Content ID calculation error:', err)
+    // Never leave a stale ID from previous field values behind.
+    canonicalString.value = ''
+    contentId.value = ''
+    currentDTag.value = ''
   }
 }
 
@@ -169,6 +173,11 @@ async function handleSave() {
     return
   }
 
+  if (selectedType.value === 'music' && !artist.value.trim()) {
+    errorMsg.value = 'Artist is required for music — it is part of the canonical content ID.'
+    return
+  }
+
   if (!authStore.isAuthenticated) {
     errorMsg.value = 'Please connect your Nostr extension to save media.'
     return
@@ -179,17 +188,24 @@ async function handleSave() {
 
   try {
     await updateCanonicalHash()
+    if (!contentId.value) {
+      throw new Error('Could not compute a content ID from these fields.')
+    }
 
+    const seasonNum = season.value === '' || season.value === null ? undefined : Number(season.value)
+    const episodeNum = episode.value === '' || episode.value === null ? undefined : Number(episode.value)
     const mediaObj = {
       contentId: contentId.value,
-      type: selectedType.value,
+      // A season+episode position makes this an episode-anchored record
+      // (parent show contentid + :sNeM d-tag), per the Nostr schema.
+      type: selectedType.value === 'show' && seasonNum !== undefined && episodeNum !== undefined ? 'episode' : selectedType.value,
       title: title.value.trim(),
       name: title.value.trim(),
       year: year.value.trim(),
       artist: selectedType.value === 'music' ? artist.value.trim() : '',
       poster: posterUrl.value,
-      season: season.value ? Number(season.value) : undefined,
-      episode: episode.value ? Number(episode.value) : undefined,
+      season: seasonNum,
+      episode: episodeNum,
     }
 
     // Cache locally

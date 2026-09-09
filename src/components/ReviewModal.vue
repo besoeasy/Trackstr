@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useMediaStore } from '@/stores/media.js'
+import { useAuthStore } from '@/stores/auth.js'
 import RatingInput from './RatingInput.vue'
 
 const props = defineProps({
@@ -17,6 +18,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'reviewed'])
 
 const mediaStore = useMediaStore()
+const authStore = useAuthStore()
 
 const reviewBody = ref('')
 const rating = ref(props.initialRating)
@@ -25,6 +27,11 @@ const isSubmitting = ref(false)
 const errorMsg = ref('')
 
 async function handleSubmit() {
+  if (!authStore.isAuthenticated) {
+    authStore.openLoginModal()
+    emit('close')
+    return
+  }
   if (!reviewBody.value.trim()) {
     errorMsg.value = 'Please enter your review text.'
     return

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
 import { bunkerService, POPULAR_BUNKER_RELAYS } from '@/services/nostr/bunker.js'
+import { isSafeHttpUrl } from '@/utils/urls.js'
 
 const emit = defineEmits(['close', 'open-debug'])
 
@@ -13,11 +14,15 @@ const activeTab = ref(nostrClient.hasExtension() ? 'extension' : 'bunker')
 const bunkerInput = ref(localStorage.getItem('trackstr_bunker_input') || '')
 const pendingAuthUrl = ref('')
 const hasExtension = ref(nostrClient.hasExtension())
+// Signer-supplied authorization URLs are untrusted input — only http(s)
+// ever reaches an href.
+const safeAuthUrl = computed(() => (isSafeHttpUrl(pendingAuthUrl.value) ? pendingAuthUrl.value : ''))
 
 // QR Code state for Bunker connection
 const qrDataUrl = ref('')
 const nostrConnectUri = ref('')
 const isGeneratingQr = ref(false)
+const qrError = ref('')
 const selectedRelays = ref(['wss://nos.lol', 'wss://relay.primal.net'])
 const copied = ref(false)
 const showManualInput = ref(false)
@@ -35,6 +40,7 @@ async function initQrSession() {
   }
   abortController = new AbortController()
   isGeneratingQr.value = true
+  qrError.value = ''
 
   try {
     const session = await bunkerService.generateNostrConnectSession({
@@ -63,13 +69,16 @@ async function initQrSession() {
       })
   } catch (err) {
     isGeneratingQr.value = false
+    qrError.value = err?.message || 'Failed to generate a Nostr Connect session.'
     console.error('Failed to generate Nostr Connect session:', err)
   }
 }
 
 function handleCopyLink() {
   if (!nostrConnectUri.value) return
-  navigator.clipboard.writeText(nostrConnectUri.value)
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(nostrConnectUri.value).catch(() => {})
+  }
   copied.value = true
   setTimeout(() => {
     copied.value = false
@@ -308,13 +317,20 @@ function handleOpenDebug() {
           </div>
 
           <!-- Remote Auth URL Callout (if Bunker requires confirmation) -->
-          <div v-if="pendingAuthUrl" class="auth-url-card">
+          <div v-if="qrError" class="login-error-banner">
+            <div class="error-head">
+              <span class="error-icon">⚠️</span>
+              <strong>QR Session Failed</strong>
+            </div>
+            <p class="error-msg">{{ qrError }}</p>
+          </div>
+          <div v-if="safeAuthUrl" class="auth-url-card">
             <div class="auth-url-icon">🔐</div>
             <div class="auth-url-body">
               <strong>Signer Authorization Required</strong>
               <p>Your remote signer requires approval. Click the button below to complete authorization in a new tab:</p>
               <a
-                :href="pendingAuthUrl"
+                :href="safeAuthUrl"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="btn btn-sm btn-primary auth-open-btn"

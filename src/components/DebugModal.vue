@@ -11,7 +11,8 @@ const authStore = useAuthStore()
 const logs = ref(getLogs())
 const logContainer = ref(null)
 const diagnostics = ref(nostrClient.getDiagnostics())
-const isTesting = ref(false)
+const isTestingExtension = ref(false)
+const isTestingBunker = ref(false)
 const testResult = ref(null)
 const copied = ref(false)
 
@@ -39,7 +40,7 @@ function scrollToBottom() {
 }
 
 async function testExtension() {
-  isTesting.value = true
+  isTestingExtension.value = true
   testResult.value = null
   logger.info('Diagnostics', 'Running manual extension test...')
 
@@ -77,12 +78,12 @@ async function testExtension() {
     }
     logger.error('Diagnostics', `Test failed: ${msg}`, err)
   } finally {
-    isTesting.value = false
+    isTestingExtension.value = false
   }
 }
 
 async function testBunker() {
-  isTesting.value = true
+  isTestingBunker.value = true
   testResult.value = null
   logger.info('Diagnostics', 'Running Bunker connection test...')
 
@@ -107,7 +108,7 @@ async function testBunker() {
     }
     logger.error('Diagnostics', `Bunker test failed: ${msg}`, err)
   } finally {
-    isTesting.value = false
+    isTestingBunker.value = false
   }
 }
 
@@ -116,7 +117,9 @@ function handleCopyLogs() {
     .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.tag}] ${l.message} ${l.data ? JSON.stringify(l.data) : ''}`)
     .join('\n')
 
-  navigator.clipboard.writeText(text)
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {})
+  }
   copied.value = true
   setTimeout(() => {
     copied.value = false
@@ -191,20 +194,20 @@ function handleClearLogs() {
             <button
               class="btn btn-primary btn-sm"
               type="button"
-              :disabled="isTesting"
+              :disabled="isTestingExtension || isTestingBunker"
               @click="testExtension"
             >
-              {{ isTesting ? 'Testing Extension...' : '🧪 Test Extension Call' }}
+              {{ isTestingExtension ? 'Testing Extension...' : '🧪 Test Extension Call' }}
             </button>
 
             <button
               v-if="diagnostics.bunkerConnected"
               class="btn btn-outline btn-sm"
               type="button"
-              :disabled="isTesting"
+              :disabled="isTestingExtension || isTestingBunker"
               @click="testBunker"
             >
-              {{ isTesting ? 'Testing Bunker...' : '⚡ Test Bunker Call' }}
+              {{ isTestingBunker ? 'Testing Bunker...' : '⚡ Test Bunker Call' }}
             </button>
           </div>
 

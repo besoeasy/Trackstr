@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { mirrorRemoteUrlToOriginless, uploadToOriginless } from '@/services/originless.js'
 import { useMediaStore } from '@/stores/media.js'
 import { useSettingsStore } from '@/stores/settings.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 const props = defineProps({
   media: {
@@ -15,18 +16,27 @@ const emit = defineEmits(['close', 'seeded'])
 
 const mediaStore = useMediaStore()
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 
 const isProcessing = ref(false)
 const stepStatus = ref('')
 const errorMsg = ref('')
+const warnMsg = ref('')
 
 const customPosterFile = ref(null)
 const overviewText = ref(props.media.overview || '')
 const genreInput = ref((props.media.genres || []).join(', '))
 
 async function handleSeed() {
+  if (!authStore.isAuthenticated) {
+    authStore.openLoginModal()
+    emit('close')
+    return
+  }
+
   isProcessing.value = true
   errorMsg.value = ''
+  warnMsg.value = ''
 
   try {
     let posterCidUri = ''
@@ -53,6 +63,7 @@ async function handleSeed() {
         posterCidUri = res.ipfsUri
       } catch (err) {
         console.warn('Failed to mirror poster to IPFS, continuing without poster CID:', err)
+        warnMsg.value = 'Poster could not be pinned to IPFS — seeding metadata without poster art.'
       }
     }
 
@@ -68,6 +79,9 @@ async function handleSeed() {
         bannerCidUri = res.ipfsUri
       } catch (err) {
         console.warn('Failed to mirror banner to IPFS:', err)
+        warnMsg.value = warnMsg.value
+          ? `${warnMsg.value} Backdrop could not be pinned either.`
+          : 'Backdrop could not be pinned to IPFS — seeding metadata without backdrop art.'
       }
     }
 
@@ -122,6 +136,10 @@ function onFileSelect(e) {
 
         <div v-if="errorMsg" class="badge badge-danger error-banner">
           {{ errorMsg }}
+        </div>
+
+        <div v-if="warnMsg" class="badge badge-warning warn-banner">
+          {{ warnMsg }}
         </div>
 
         <div class="form-group">
@@ -179,6 +197,12 @@ function onFileSelect(e) {
 }
 
 .error-banner {
+  display: block;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.warn-banner {
   display: block;
   padding: 8px 12px;
   margin-bottom: 14px;

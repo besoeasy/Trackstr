@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Navbar from '@/components/Navbar.vue'
 import { useSettingsStore } from '@/stores/settings.js'
+import { isSafeHttpUrl } from '@/utils/urls.js'
 
 const settingsStore = useSettingsStore()
 const isActionActive = ref(false)
@@ -11,6 +12,10 @@ const actionInfo = ref({
   message: 'Please check your browser extension to continue.',
   kind: null,
 })
+// Auth URLs originate from remote signers/relays — never bind them blindly.
+const safeAuthUrl = computed(() =>
+  isSafeHttpUrl(actionInfo.value.authUrl) ? actionInfo.value.authUrl : ''
+)
 
 function onExtensionAction(e) {
   if (!e.detail) return
@@ -68,8 +73,8 @@ onUnmounted(() => {
           </div>
           <div class="signing-desc">{{ actionInfo.message }}</div>
           <a
-            v-if="actionInfo.authUrl"
-            :href="actionInfo.authUrl"
+            v-if="safeAuthUrl"
+            :href="safeAuthUrl"
             target="_blank"
             rel="noopener noreferrer"
             class="banner-auth-link"

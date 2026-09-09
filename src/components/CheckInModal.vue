@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useMediaStore } from '@/stores/media.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 const props = defineProps({
   media: {
@@ -12,6 +13,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'logged'])
 
 const mediaStore = useMediaStore()
+const authStore = useAuthStore()
 
 const status = ref(props.media.type === 'music' ? 'listening' : 'watching')
 const progress = ref('')
@@ -19,12 +21,38 @@ const note = ref('')
 const isSubmitting = ref(false)
 const errorMsg = ref('')
 
+/**
+ * Parses "S01E03" / "s1e3" / "1e3" into season/episode numbers so episode
+ * check-ins land on the addressable episode d-tag instead of
+ * clobbering the parent show's status.
+ */
+function parseEpisodeProgress(text) {
+  const m = /^\s*s?(\d{1,2})\s*e\s*(\d{1,3})\s*$/i.exec(text || '')
+  if (!m) return null
+  return { season: Number(m[1]), episode: Number(m[2]) }
+}
+
 async function handleSubmit() {
+  if (!authStore.isAuthenticated) {
+    authStore.openLoginModal()
+    emit('close')
+    return
+  }
+
   isSubmitting.value = true
   errorMsg.value = ''
 
   try {
-    await mediaStore.setStatus(props.media, status.value, progress.value, note.value)
+    let media = props.media
+    let progressText = progress.value
+    if (props.media.type === 'show') {
+      const ep = parseEpisodeProgress(progress.value)
+      if (ep) {
+        media = { ...props.media, type: 'episode', season: ep.season, episode: ep.episode }
+        progressText = `s${ep.season}e${ep.episode}`
+      }
+    }
+    await mediaStore.setStatus(media, status.value, progressText, note.value)
     emit('logged')
     emit('close')
   } catch (err) {

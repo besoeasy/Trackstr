@@ -32,8 +32,21 @@ const displayRating = computed(() => {
   return currentRating.value
 })
 
-function setRating(val) {
+function ratingForClick(star, event) {
+  // Left half of a star = half-step (spec allows 8.5-style values).
+  const el = event?.currentTarget
+  if (el && typeof event?.clientX === 'number' && el.getBoundingClientRect) {
+    const rect = el.getBoundingClientRect()
+    if (rect.width > 0 && event.clientX - rect.left < rect.width / 2) {
+      return star - 0.5
+    }
+  }
+  return star
+}
+
+function setRating(star, event) {
   if (props.readonly) return
+  const val = ratingForClick(star, event)
   const newRating = currentRating.value === val ? null : val
   emit('update:modelValue', newRating)
   emit('change', newRating)
@@ -59,12 +72,13 @@ function onLeave() {
         class="star-btn"
         :class="{
           'is-filled': displayRating !== null && star <= displayRating,
+          'is-half': displayRating !== null && star - 0.5 === displayRating,
           'is-preview': hoveredStar !== null && star <= hoveredStar && (currentRating === null || star > currentRating),
           'is-readonly': readonly,
         }"
         :title="`${star} / ${max}`"
         @mouseenter="onHover(star)"
-        @click="setRating(star)"
+        @click="setRating(star, $event)"
       >
         ★
       </button>
@@ -116,6 +130,13 @@ function onLeave() {
 .star-btn.is-filled {
   color: var(--accent-amber);
   filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.35));
+}
+
+.star-btn.is-half {
+  background: linear-gradient(90deg, var(--accent-amber) 50%, var(--border-hover) 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .star-btn.is-preview {

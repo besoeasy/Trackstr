@@ -1,8 +1,9 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useSettingsStore } from '@/stores/settings.js'
+import { safeMediaUrl } from '@/utils/urls.js'
 import SettingsModal from './SettingsModal.vue'
 import DebugModal from './DebugModal.vue'
 import LoginModal from './LoginModal.vue'
@@ -10,6 +11,9 @@ import LoginModal from './LoginModal.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
+
+// Kind-0 picture URLs are attacker-controlled relay data — render only if safe.
+const safeAvatar = computed(() => safeMediaUrl(authStore.avatarUrl))
 
 const showSettings = ref(false)
 const showDebug = ref(false)
@@ -110,8 +114,8 @@ function handleLogout() {
               @click="showUserMenu = !showUserMenu"
             >
               <img
-                v-if="authStore.avatarUrl"
-                :src="authStore.avatarUrl"
+                v-if="safeAvatar"
+                :src="safeAvatar"
                 class="user-avatar"
                 alt="Avatar"
               />
