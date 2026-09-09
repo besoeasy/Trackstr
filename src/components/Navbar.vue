@@ -34,11 +34,6 @@ function handleLogout() {
   <header class="navbar">
     <div class="navbar-inner">
       <router-link to="/" class="brand">
-        <div class="brand-icon">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 1L24 22H0L12 1Z" />
-          </svg>
-        </div>
         <span class="brand-text">Trackstr</span>
       </router-link>
 
