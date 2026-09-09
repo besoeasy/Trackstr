@@ -2,8 +2,10 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
+import { fetchShowEpisodes } from '@/services/api/tv.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
 import MediaCard from '@/components/MediaCard.vue'
@@ -11,6 +13,7 @@ import MediaCard from '@/components/MediaCard.vue'
 const route = useRoute()
 const router = useRouter()
 const mediaStore = useMediaStore()
+const authStore = useAuthStore()
 
 const searchInputRef = ref(null)
 
@@ -166,39 +169,178 @@ async function loadPopularFromNostr() {
   }
 }
 
+// ---- Recommendation Engine ----
+// Weighted categories so the suggestion feels like a real recommendation
+// engine: continue-watching episodes rank highest, then popular unwatched
+// movies, then random community picks. Popularity + recency add boost, and
+// a jitter term keeps picks from being deterministic.
+const SUGGESTION_WEIGHTS = {
+  'missed-episode': 5,
+  'unwatched-movie': 3,
+  'random-movie': 1,
+}
+
 // A movie counts as "already watched" when the viewer has marked it
 // completed/watching or rated it — those are the states that mean "seen".
 function isWatchedByUser(item) {
   if (!item?.contentId) return false
+  // Episode candidates are judged by their own episode state, never the
+  // parent show's (a "watching" show must not hide its unwatched episodes).
+  if (item.type === 'episode' && item.season && item.episode) {
+    return isEpisodeWatched(item.contentId, item.season, item.episode)
+  }
   const status = mediaStore.getMediaStatus(item.contentId)
   if (status && ['completed', 'watching'].includes(status.status)) return true
   const rating = mediaStore.getMediaRating(item.contentId)
   return rating !== null && rating !== undefined
 }
 
-function pickRandomSuggestion() {
-  if (suggestionPool.value.length === 0) {
+// Check whether the viewer has watched a specific episode of a show.
+function isEpisodeWatched(contentId, season, episode) {
+  const status = mediaStore.getMediaStatus(contentId, season, episode)
+  if (status && ['completed', 'watching'].includes(status.status)) return true
+  const rating = mediaStore.getMediaRating(contentId, season, episode)
+  return rating !== null && rating !== undefined
+}
+
+// "Continue watching": for every show the viewer is currently watching, find
+// the next episode they haven't seen yet. These are the strongest signal.
+async function buildMissedEpisodeCandidates() {
+  const candidates = []
+  if (!authStore.pubkey) return candidates
+
+  const watchingShows = Object.values(mediaStore.statuses).filter(
+    (s) => s.pubkey === authStore.pubkey && s.status === 'watching' && s.media?.type === 'show'
+  )
+
+  // Cap the number of shows we query so the home page stays snappy.
+  const shows = watchingShows.slice(0, 5)
+
+  await Promise.all(
+    shows.map(async (show) => {
+      try {
+        const data = await fetchShowEpisodes({
+          title: show.media.title || show.media.name,
+          tmdbId: show.media.tmdbId,
+          tvmazeId: show.media.tvmazeId,
+          numberOfSeasons: show.media.seasons,
+        })
+        const unwatched = []
+        for (const season of data.seasons || []) {
+          for (const ep of season.episodes || []) {
+            if (!isEpisodeWatched(show.contentId, ep.season, ep.episode)) {
+              unwatched.push(ep)
+            }
+          }
+        }
+        unwatched.sort((a, b) => a.season - b.season || a.episode - b.episode)
+        if (unwatched.length > 0) {
+          const ep = unwatched[0]
+          const showTitle = show.media.title || show.media.name || 'Show'
+          candidates.push({
+            category: 'missed-episode',
+            contentId: show.contentId,
+            type: 'episode',
+            title: showTitle,
+            name: showTitle,
+            showTitle,
+            episodeName: ep.name,
+            season: ep.season,
+            episode: ep.episode,
+            year: show.media.year,
+            poster: show.media.poster,
+            overview: ep.summary || show.media.overview || '',
+            reason: `Continue watching ${showTitle}`,
+            latestActivityAt: show.createdAt || 0,
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to build missed-episode suggestion:', err)
+      }
+    })
+  )
+  return candidates
+}
+
+// Score a candidate: base category weight + popularity + recency + jitter.
+function scoreCandidate(candidate) {
+  const base = SUGGESTION_WEIGHTS[candidate.category] || 1
+  const popularity = Math.min(candidate.nostrEventCount || 0, 10) * 0.3
+  const ageDays = Math.max(0, (Date.now() / 1000 - (candidate.latestActivityAt || 0)) / 86400)
+  const recency = Math.max(0, 1 - ageDays / 7) * 1.5
+  const jitter = Math.random() * 1.5
+  return base + popularity + recency + jitter
+}
+
+// Weighted random pick — higher-scoring candidates surface more often, but
+// the jitter keeps every shuffle fresh.
+function pickWeightedSuggestion() {
+  const pool = suggestionPool.value
+  if (pool.length === 0) {
     suggestion.value = null
     return
   }
-  let next = suggestion.value
-  let attempts = 0
-  while (suggestionPool.value.length > 1 && next === suggestion.value && attempts < 20) {
-    next = suggestionPool.value[Math.floor(Math.random() * suggestionPool.value.length)]
-    attempts++
+  const scored = pool.map((c) => ({ c, score: scoreCandidate(c) }))
+  const total = scored.reduce((sum, s) => sum + s.score, 0)
+  let roll = Math.random() * total
+  for (const { c, score } of scored) {
+    roll -= score
+    if (roll <= 0) {
+      suggestion.value = c
+      return
+    }
   }
-  suggestion.value = next
+  suggestion.value = scored[scored.length - 1].c
 }
 
-// Builds the suggestion pool from Nostr relay activity (movies only),
-// excluding anything the viewer has already watched.
+// Builds the weighted recommendation pool:
+//  1. Missed episodes of shows you're watching (continue watching)
+//  2. Popular movies on Nostr you haven't watched
+//  3. A few random community picks (even ones you've seen — rewatch nudge)
 async function loadSuggestions() {
   isLoadingSuggestion.value = true
   suggestionError.value = ''
   try {
-    const items = await mediaStore.fetchPopularMediaFromEvents({ type: 'movie', limit: 60 })
-    suggestionPool.value = items.filter((item) => !isWatchedByUser(item))
-    pickRandomSuggestion()
+    const [popular, missedEpisodes] = await Promise.all([
+      mediaStore.fetchPopularMediaFromEvents({ type: 'movie', limit: 60 }),
+      buildMissedEpisodeCandidates(),
+    ])
+
+    const pool = []
+    pool.push(...missedEpisodes)
+
+    const unwatched = popular.filter((item) => !isWatchedByUser(item))
+    pool.push(
+      ...unwatched.map((item) => ({
+        ...item,
+        category: 'unwatched-movie',
+        reason: "Popular on Nostr you haven't seen",
+      }))
+    )
+
+    // Random community picks — low weight, high jitter, occasionally a
+    // rewatch nudge for something you've already seen.
+    const randomCount = Math.min(5, popular.length)
+    for (let i = 0; i < randomCount; i++) {
+      const pick = popular[Math.floor(Math.random() * popular.length)]
+      if (pick) {
+        pool.push({
+          ...pick,
+          category: 'random-movie',
+          reason: 'Random pick from the Nostr community',
+        })
+      }
+    }
+
+    // Deduplicate by contentId (a movie can appear in multiple categories).
+    const seen = new Set()
+    suggestionPool.value = pool.filter((c) => {
+      if (!c?.contentId || seen.has(c.contentId)) return false
+      seen.add(c.contentId)
+      return true
+    })
+
+    pickWeightedSuggestion()
   } catch (err) {
     console.warn('Failed to load suggestions:', err)
     suggestionError.value = 'Could not load suggestions from Nostr relays.'
@@ -208,7 +350,7 @@ async function loadSuggestions() {
 }
 
 function shuffleSuggestion() {
-  pickRandomSuggestion()
+  pickWeightedSuggestion()
 }
 
 function openSuggestion() {
@@ -219,15 +361,27 @@ function openSuggestion() {
     name: 'media-detail',
     params: { contentId: item.contentId },
     query: {
-      type: item.type,
-      title: item.title || item.name,
+      type: item.type === 'episode' ? 'show' : item.type,
+      title: item.showTitle || item.title || item.name,
       year: item.year,
       artist: item.artist,
     },
   })
 }
 
-const suggestionTitle = computed(() => suggestion.value?.title || suggestion.value?.name || '')
+const suggestionTitle = computed(() => {
+  const item = suggestion.value
+  if (!item) return ''
+  if (item.category === 'missed-episode') return item.showTitle || item.title || item.name
+  return item.title || item.name || ''
+})
+
+const suggestionEpisodeLabel = computed(() => {
+  const item = suggestion.value
+  if (!item || item.category !== 'missed-episode') return ''
+  return `S${item.season}E${item.episode}${item.episodeName ? `: ${item.episodeName}` : ''}`
+})
+
 const suggestionPoster = computed(() => {
   const item = suggestion.value
   if (!item) return ''
@@ -282,7 +436,7 @@ watch(
     if (suggestionPool.value.length === 0) return
     suggestionPool.value = suggestionPool.value.filter((item) => !isWatchedByUser(item))
     if (suggestion.value && isWatchedByUser(suggestion.value)) {
-      pickRandomSuggestion()
+      pickWeightedSuggestion()
     }
   },
   { deep: true }
@@ -400,16 +554,16 @@ watch(
 
     <!-- CASE 2: DEFAULT HOME VIEW (SUGGESTION + POPULAR ON NOSTR + LIVE FEED) -->
     <template v-else>
-      <!-- Personalized Suggestion (random unwatched movie from Nostr) -->
+      <!-- Personalized Recommendation (weighted engine) -->
       <section class="section suggestion-section">
         <div class="section-header">
           <div>
             <div class="title-with-badge">
-              <h2 class="section-title">🎲 Suggestion for You</h2>
+              <h2 class="section-title">🎯 Recommended for You</h2>
               <span class="badge badge-primary nostr-live-tag">⚡ Powered by Nostr</span>
             </div>
             <p class="section-subtitle">
-              A random movie from the Nostr community you haven't watched yet
+              Continue watching, popular unwatched movies, and random community finds — weighted by your taste
             </p>
           </div>
 
@@ -425,7 +579,7 @@ watch(
 
         <div v-if="isLoadingSuggestion" class="loading-state">
           <div class="spinner"></div>
-          <p>Querying Nostr relays for a fresh suggestion...</p>
+          <p>Querying Nostr relays and building your recommendations...</p>
         </div>
 
         <div v-else-if="suggestion" class="suggestion-card card">
@@ -443,7 +597,12 @@ watch(
 
           <div class="suggestion-info">
             <div class="suggestion-meta">
-              <span class="badge badge-primary suggestion-type-tag">{{ suggestion.type }}</span>
+              <span class="badge badge-primary suggestion-type-tag">
+                {{ suggestion.category === 'missed-episode' ? 'Continue Watching' : suggestion.type }}
+              </span>
+              <span v-if="suggestion.category === 'missed-episode'" class="suggestion-episode-tag">
+                S{{ suggestion.season }}E{{ suggestion.episode }}
+              </span>
               <span v-if="suggestion.year" class="suggestion-year">{{ suggestion.year }}</span>
               <span v-if="suggestion.nostrEventCount" class="suggestion-stats">
                 ⚡ {{ suggestion.nostrEventCount }} Nostr event{{ suggestion.nostrEventCount === 1 ? '' : 's' }}
@@ -451,11 +610,13 @@ watch(
             </div>
 
             <h3 class="suggestion-title">{{ suggestionTitle }}</h3>
+            <p v-if="suggestionEpisodeLabel" class="suggestion-episode-label">{{ suggestionEpisodeLabel }}</p>
             <p v-if="suggestion.overview" class="suggestion-overview">{{ suggestion.overview }}</p>
+            <p v-if="suggestion.reason" class="suggestion-reason">{{ suggestion.reason }}</p>
 
             <div class="suggestion-actions">
               <button class="btn btn-primary" type="button" @click="openSuggestion">
-                ▶ Track This Movie
+                {{ suggestion.category === 'missed-episode' ? '▶ Watch Episode' : '▶ Track This Movie' }}
               </button>
               <button
                 class="btn btn-outline btn-sm"
@@ -847,6 +1008,16 @@ watch(
   letter-spacing: 0.04em;
 }
 
+.suggestion-episode-tag {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
 .suggestion-year {
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -865,6 +1036,20 @@ watch(
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--text-main);
+}
+
+.suggestion-episode-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-emerald);
+  letter-spacing: -0.01em;
+}
+
+.suggestion-reason {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
 }
 
 .suggestion-overview {
