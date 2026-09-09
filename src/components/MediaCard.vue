@@ -75,6 +75,10 @@ function navigateToDetail() {
         {{ media.type }}
       </span>
 
+      <span v-if="media.voteAverage" class="card-vote-badge">
+        ★ {{ media.voteAverage }}
+      </span>
+
       <span v-if="userStatus" class="badge media-status-tag" :class="getStatusColorClass(userStatus.status)">
         {{ formatStatus(userStatus.status) }}
       </span>
@@ -90,6 +94,10 @@ function navigateToDetail() {
 
         <div v-if="userRating" class="rating-stars" :title="`Your rating: ${userRating}/10`">
           ★ <span class="rating-score">{{ userRating }}</span>
+        </div>
+
+        <div v-else-if="media.sources && media.sources.length > 0" class="card-sources">
+          <span v-for="src in media.sources" :key="src" class="source-chip">{{ src }}</span>
         </div>
       </div>
     </div>
@@ -110,5 +118,35 @@ function navigateToDetail() {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 110px;
+}
+
+.card-vote-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(15, 17, 26, 0.85);
+  backdrop-filter: blur(4px);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+}
+
+.card-sources {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.source-chip {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-surface);
+  color: var(--accent-sky);
+  border: 1px solid var(--border-subtle);
 }
 </style>

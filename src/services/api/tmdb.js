@@ -59,12 +59,15 @@ export const SAMPLE_MEDIA = [
   },
 ]
 
+export const DEFAULT_TMDB_KEY = 'db55323b8d3e4154498498a75642b381'
+
 export function getTmdbApiKey() {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('trackstr_tmdb_api_key')
     if (saved && saved.trim()) return saved.trim()
   }
-  return (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_TMDB_API_KEY) || ''
+  const envKey = typeof import.meta !== 'undefined' && import.meta?.env?.VITE_TMDB_API_KEY
+  return (envKey && envKey.trim()) || DEFAULT_TMDB_KEY
 }
 
 export function getTmdbImageUrl(path, size = 'w500') {
@@ -161,80 +164,154 @@ async function searchWikipediaMovies(query) {
  * @param {'all'|'movies'|'shows'} [filter='all']
  * @returns {Promise<Array<Object>>}
  */
+/**
+ * Searches across Multiple Sources (TMDB + TVMaze + Wikipedia) concurrently and merges results
+ * @param {string} query
+ * @param {'all'|'movies'|'shows'} [filter='all']
+ * @returns {Promise<Array<Object>>}
+ */
 export async function searchTmdb(query, filter = 'all') {
   if (!query || !query.trim()) return []
   const apiKey = getTmdbApiKey()
+  const q = query.trim()
 
-  // 1. If user provided a TMDB API key, use TMDB directly
+  // 1. Prepare parallel requests across multiple providers
+  const promises = []
+
+  // Source 1: TMDB API
   if (apiKey) {
-    try {
-      let endpoint = `${TMDB_BASE_URL}/search/multi?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&include_adult=false`
-      if (filter === 'movies') {
-        endpoint = `${TMDB_BASE_URL}/search/movie?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&include_adult=false`
-      } else if (filter === 'shows') {
-        endpoint = `${TMDB_BASE_URL}/search/tv?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&include_adult=false`
-      }
+    let endpoint = `${TMDB_BASE_URL}/search/multi?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(q)}&include_adult=false`
+    if (filter === 'movies') {
+      endpoint = `${TMDB_BASE_URL}/search/movie?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(q)}&include_adult=false`
+    } else if (filter === 'shows') {
+      endpoint = `${TMDB_BASE_URL}/search/tv?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(q)}&include_adult=false`
+    }
 
-      const res = await fetch(endpoint)
-      if (res.ok) {
-        const data = await res.json()
-        const results = (data.results || []).filter((item) => {
-          if (filter === 'movies') return true
-          if (filter === 'shows') return true
-          return item.media_type === 'movie' || item.media_type === 'tv'
+    promises.push(
+      fetch(endpoint)
+        .then((res) => (res.ok ? res.json() : { results: [] }))
+        .then((data) => {
+          return (data.results || [])
+            .filter((item) => {
+              if (filter === 'movies') return true
+              if (filter === 'shows') return true
+              return item.media_type === 'movie' || item.media_type === 'tv'
+            })
+            .map((item) => {
+              const isMovie = filter === 'movies' ? true : filter === 'shows' ? false : item.media_type === 'movie'
+              const title = isMovie ? item.title : item.name
+              const releaseDate = isMovie ? item.release_date : item.first_air_date
+              const year = releaseDate ? releaseDate.slice(0, 4) : ''
+
+              return {
+                type: isMovie ? 'movie' : 'show',
+                tmdbId: item.id,
+                id: item.id,
+                title: title || 'Untitled',
+                year,
+                overview: item.overview || '',
+                poster: getTmdbImageUrl(item.poster_path, 'w500'),
+                banner: getTmdbImageUrl(item.backdrop_path, 'original'),
+                genres: [],
+                voteAverage: item.vote_average ? Number(item.vote_average.toFixed(1)) : null,
+                sources: ['TMDB'],
+              }
+            })
         })
+        .catch((err) => {
+          console.warn('TMDB search failed:', err)
+          return []
+        })
+    )
+  } else {
+    promises.push(Promise.resolve([]))
+  }
 
-        if (results.length > 0) {
-          return results.map((item) => {
-            const isMovie = filter === 'movies' ? true : filter === 'shows' ? false : item.media_type === 'movie'
-            const title = isMovie ? item.title : item.name
-            const releaseDate = isMovie ? item.release_date : item.first_air_date
-            const year = releaseDate ? releaseDate.slice(0, 4) : ''
+  // Source 2: TVMaze (TV Shows)
+  if (filter === 'all' || filter === 'shows') {
+    promises.push(
+      searchTVMaze(q).then((results) =>
+        results.map((r) => ({ ...r, sources: ['TVMaze'], tvmazeId: r.id }))
+      )
+    )
+  } else {
+    promises.push(Promise.resolve([]))
+  }
 
-            return {
-              type: isMovie ? 'movie' : 'show',
-              id: item.id,
-              title: title || 'Untitled',
-              year,
-              overview: item.overview || '',
-              poster: getTmdbImageUrl(item.poster_path, 'w500'),
-              banner: getTmdbImageUrl(item.backdrop_path, 'original'),
-              genres: [],
-            }
-          })
-        }
+  // Source 3: Wikipedia (Theatrical Movies)
+  if (filter === 'all' || filter === 'movies') {
+    promises.push(
+      searchWikipediaMovies(q).then((results) =>
+        results.map((r) => ({ ...r, sources: ['Wikipedia'], wikiId: r.id }))
+      )
+    )
+  } else {
+    promises.push(Promise.resolve([]))
+  }
+
+  // Await all sources concurrently
+  const [tmdbRes, tvmazeRes, wikiRes] = await Promise.allSettled(promises)
+  const tmdbItems = tmdbRes.status === 'fulfilled' ? tmdbRes.value : []
+  const tvmazeItems = tvmazeRes.status === 'fulfilled' ? tvmazeRes.value : []
+  const wikiItems = wikiRes.status === 'fulfilled' ? wikiRes.value : []
+
+  // 2. Intelligent Multi-Source Merge by normalized title & type
+  const mergedMap = new Map()
+
+  function getNormKey(item) {
+    const t = (item.title || item.name || '').toLowerCase().trim()
+    return `${item.type || 'movie'}|${t}`
+  }
+
+  // First insert TMDB items (high baseline quality)
+  for (const item of tmdbItems) {
+    const key = getNormKey(item)
+    mergedMap.set(key, item)
+  }
+
+  // Merge TVMaze items
+  for (const item of tvmazeItems) {
+    const key = getNormKey(item)
+    if (mergedMap.has(key)) {
+      const existing = mergedMap.get(key)
+      if (!existing.sources.includes('TVMaze')) existing.sources.push('TVMaze')
+      if (!existing.poster && item.poster) existing.poster = item.poster
+      if (!existing.overview && item.overview) existing.overview = item.overview
+      if (item.genres && item.genres.length > 0) {
+        existing.genres = Array.from(new Set([...(existing.genres || []), ...item.genres]))
       }
-    } catch (err) {
-      console.warn('TMDB search failed, falling back to open providers:', err)
+      existing.tvmazeId = item.id
+    } else {
+      mergedMap.set(key, item)
     }
   }
 
-  // 2. Open Free Providers (No API key needed)
-  const openPromises = []
-  if (filter === 'all' || filter === 'shows') {
-    openPromises.push(searchTVMaze(query))
-  }
-  if (filter === 'all' || filter === 'movies') {
-    openPromises.push(searchWikipediaMovies(query))
+  // Merge Wikipedia items
+  for (const item of wikiItems) {
+    const key = getNormKey(item)
+    if (mergedMap.has(key)) {
+      const existing = mergedMap.get(key)
+      if (!existing.sources.includes('Wikipedia')) existing.sources.push('Wikipedia')
+      if (!existing.overview && item.overview) existing.overview = item.overview
+      if (!existing.poster && item.poster) existing.poster = item.poster
+      existing.wikiId = item.id
+    } else {
+      mergedMap.set(key, item)
+    }
   }
 
-  const [tvResults, movieResults] = await Promise.all([
-    (filter === 'all' || filter === 'shows') ? searchTVMaze(query) : Promise.resolve([]),
-    (filter === 'all' || filter === 'movies') ? searchWikipediaMovies(query) : Promise.resolve([]),
-  ])
-
-  let combined = [...tvResults, ...movieResults]
+  const combined = Array.from(mergedMap.values())
 
   // Also check local curated sample items
-  const q = query.toLowerCase()
+  const qLower = q.toLowerCase()
   const sampleMatches = SAMPLE_MEDIA.filter(
-    (item) => item.title.toLowerCase().includes(q) || item.genres.some((g) => g.toLowerCase().includes(q))
+    (item) => item.title.toLowerCase().includes(qLower) || item.genres.some((g) => g.toLowerCase().includes(qLower))
   )
 
-  // Prepend sample matches if not already in combined
   for (const sample of sampleMatches) {
-    if (!combined.some((c) => c.title.toLowerCase() === sample.title.toLowerCase())) {
-      combined.unshift(sample)
+    const key = getNormKey(sample)
+    if (!mergedMap.has(key)) {
+      combined.unshift({ ...sample, sources: ['Curated'] })
     }
   }
 
@@ -242,40 +319,131 @@ export async function searchTmdb(query, filter = 'all') {
 }
 
 /**
- * Fetches full details for a movie or show by ID
+ * Fetches rich details for a movie or show across multiple sources (TMDB + TVMaze)
  * @param {'movie'|'show'} type
- * @param {number|string} id
+ * @param {number|string} [id]
+ * @param {string} [title]
+ * @param {string} [year]
+ * @returns {Promise<Object|null>}
  */
-export async function getTmdbDetails(type, id) {
+export async function getTmdbDetails(type, id, title = '', year = '') {
   const apiKey = getTmdbApiKey()
-  if (apiKey && typeof id === 'number') {
-    try {
-      const endpoint = type === 'movie' ? 'movie' : 'tv'
-      const url = `${TMDB_BASE_URL}/${endpoint}/${id}?api_key=${encodeURIComponent(apiKey)}&append_to_response=credits`
-      const res = await fetch(url)
-      if (res.ok) {
-        const data = await res.json()
-        const isMovie = type === 'movie'
-        const title = isMovie ? data.title : data.name
-        const releaseDate = isMovie ? data.release_date : data.first_air_date
-        const year = releaseDate ? releaseDate.slice(0, 4) : ''
+  let result = null
+  const sources = []
 
-        return {
-          type,
-          id: data.id,
-          title,
-          year,
-          overview: data.overview || '',
-          poster: getTmdbImageUrl(data.poster_path, 'w500'),
-          banner: getTmdbImageUrl(data.backdrop_path, 'original'),
-          genres: (data.genres || []).map((g) => g.name),
-          status: data.status,
-          tagline: data.tagline,
+  // 1. Fetch from TMDB if apiKey is available
+  if (apiKey) {
+    try {
+      let numericId = typeof id === 'number' ? id : null
+
+      // If id is not numeric, search TMDB for the title first
+      if (!numericId && title) {
+        const searchEndpoint = type === 'movie' ? 'search/movie' : 'search/tv'
+        const sRes = await fetch(
+          `${TMDB_BASE_URL}/${searchEndpoint}?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(title)}&include_adult=false`
+        )
+        if (sRes.ok) {
+          const sData = await sRes.json()
+          if (sData.results && sData.results.length > 0) {
+            numericId = sData.results[0].id
+          }
         }
       }
-    } catch {}
+
+      if (numericId) {
+        const endpoint = type === 'movie' ? 'movie' : 'tv'
+        const url = `${TMDB_BASE_URL}/${endpoint}/${numericId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=credits`
+        const res = await fetch(url)
+        if (res.ok) {
+          const data = await res.json()
+          const isMovie = type === 'movie'
+          const itemTitle = isMovie ? data.title : data.name
+          const releaseDate = isMovie ? data.release_date : data.first_air_date
+          const itemYear = releaseDate ? releaseDate.slice(0, 4) : year
+
+          // Extract Director from crew
+          const director = (data.credits?.crew || []).find((c) => c.job === 'Director')?.name || ''
+
+          // Extract top 8 cast members with character and photos
+          const cast = (data.credits?.cast || []).slice(0, 8).map((c) => ({
+            name: c.name,
+            character: c.character,
+            profile: c.profile_path ? getTmdbImageUrl(c.profile_path, 'w185') : '',
+          }))
+
+          sources.push('TMDB')
+
+          result = {
+            type,
+            id: data.id,
+            tmdbId: data.id,
+            title: itemTitle,
+            name: itemTitle,
+            year: itemYear,
+            overview: data.overview || '',
+            poster: getTmdbImageUrl(data.poster_path, 'w500'),
+            banner: getTmdbImageUrl(data.backdrop_path, 'original'),
+            genres: (data.genres || []).map((g) => g.name),
+            status: data.status,
+            tagline: data.tagline,
+            voteAverage: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
+            runtime: isMovie ? data.runtime : (data.episode_run_time?.[0] || null),
+            director,
+            cast,
+            seasons: data.number_of_seasons || null,
+            episodes: data.number_of_episodes || null,
+            sources,
+          }
+        }
+      }
+    } catch (tmdbErr) {
+      console.warn('Failed to fetch TMDB details:', tmdbErr)
+    }
   }
 
-  const found = SAMPLE_MEDIA.find((m) => m.type === type && (m.title.toLowerCase() === String(id).toLowerCase() || m.id === id))
-  return found || null
+  // 2. Fetch from TVMaze for series to enrich network and schedule
+  if (type === 'show' && (title || result?.title)) {
+    try {
+      const showTitle = title || result?.title
+      const tvRes = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(showTitle)}`)
+      if (tvRes.ok) {
+        const tvData = await tvRes.json()
+        if (!result) {
+          result = {
+            type: 'show',
+            id: `tvmaze-${tvData.id}`,
+            title: tvData.name,
+            name: tvData.name,
+            year: tvData.premiered ? tvData.premiered.slice(0, 4) : year,
+            overview: tvData.summary ? tvData.summary.replace(/<[^>]+>/g, '').trim() : '',
+            poster: tvData.image?.original || tvData.image?.medium || '',
+            banner: tvData.image?.original || '',
+            genres: tvData.genres || [],
+            sources: ['TVMaze'],
+          }
+        } else {
+          if (!result.sources.includes('TVMaze')) result.sources.push('TVMaze')
+          if (!result.poster && tvData.image?.original) result.poster = tvData.image.original
+        }
+
+        result.network = tvData.network?.name || tvData.webChannel?.name || null
+        result.status = tvData.status || result.status
+      }
+    } catch (tvErr) {
+      console.warn('TVMaze enrichment failed:', tvErr)
+    }
+  }
+
+  // 3. Fallback to sample items if nothing was found
+  if (!result) {
+    const lookupKey = (title || String(id)).toLowerCase()
+    const found = SAMPLE_MEDIA.find(
+      (m) => m.type === type && (m.title.toLowerCase() === lookupKey || m.id === id)
+    )
+    if (found) {
+      result = { ...found, sources: ['Curated'] }
+    }
+  }
+
+  return result
 }

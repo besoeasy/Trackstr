@@ -6,7 +6,7 @@ import { useMediaStore } from '@/stores/media.js'
 import { resolveIpfsUrl } from '@/services/originless.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
-import { SAMPLE_MEDIA } from '@/services/api/tmdb.js'
+import { SAMPLE_MEDIA, getTmdbDetails } from '@/services/api/tmdb.js'
 import { SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
@@ -32,6 +32,13 @@ const media = ref({
   poster: '',
   banner: '',
   genres: [],
+  tagline: '',
+  voteAverage: null,
+  runtime: null,
+  director: '',
+  network: '',
+  cast: [],
+  sources: [],
 })
 
 const showReviewModal = ref(false)
@@ -98,7 +105,7 @@ async function loadMediaData() {
 
   // Look up in sample data
   const sample = [...SAMPLE_MEDIA, ...SAMPLE_MUSIC].find((s) => {
-    return s.title.toLowerCase() === (route.query.title || '').toLowerCase()
+    return s.title.toLowerCase() === (route.query.title || media.value.title || '').toLowerCase()
   })
 
   if (sample) {
@@ -108,6 +115,38 @@ async function loadMediaData() {
       contentId: contentId.value,
       title: sample.title,
       name: sample.title,
+    }
+  }
+
+  // Fetch Multi-Source Rich Details (TMDB + TVMaze) for movies & shows
+  const mediaType = media.value.type || route.query.type || 'movie'
+  const mediaTitle = media.value.title || route.query.title || ''
+  const mediaYear = media.value.year || route.query.year || ''
+
+  if (['movie', 'show'].includes(mediaType) && mediaTitle && mediaTitle !== 'Loading...') {
+    try {
+      const richDetails = await getTmdbDetails(
+        mediaType,
+        stored?.tmdbId || stored?.id,
+        mediaTitle,
+        mediaYear
+      )
+      if (richDetails) {
+        media.value = {
+          ...media.value,
+          ...richDetails,
+          contentId: contentId.value,
+          title: richDetails.title || media.value.title,
+          name: richDetails.title || media.value.name,
+          poster: richDetails.poster || media.value.poster,
+          banner: richDetails.banner || media.value.banner,
+          overview: richDetails.overview || media.value.overview,
+          genres: richDetails.genres?.length ? richDetails.genres : media.value.genres,
+        }
+        mediaStore.cacheMediaItem(media.value)
+      }
+    } catch (err) {
+      console.warn('Failed to load rich multi-source details:', err)
     }
   }
 }
@@ -205,13 +244,38 @@ function copyContentId() {
           <div class="header-badges">
             <span class="badge badge-primary">{{ media.type }}</span>
             <span v-if="media.year" class="badge badge-neutral">{{ media.year }}</span>
+            <span v-if="media.voteAverage" class="badge badge-tmdb-score" title="TMDB Community Score">
+              ★ {{ media.voteAverage }} TMDB
+            </span>
+            <span v-if="media.runtime" class="badge badge-neutral">
+              {{ media.runtime }} min
+            </span>
+            <span v-if="media.network" class="badge badge-neutral">
+              {{ media.network }}
+            </span>
+            <span v-if="media.seasons" class="badge badge-neutral">
+              {{ media.seasons }} Seasons ({{ media.episodes }} eps)
+            </span>
             <span v-if="userStatus" class="badge" :class="getStatusColorClass(userStatus.status)">
               {{ formatStatus(userStatus.status) }}
+            </span>
+            <!-- Multi-Source Badges -->
+            <span
+              v-for="src in (media.sources || [])"
+              :key="src"
+              class="badge badge-source"
+              :title="`Data enriched from ${src}`"
+            >
+              {{ src }}
             </span>
           </div>
 
           <h1 class="media-title">{{ media.title || media.name }}</h1>
+          <p v-if="media.tagline" class="media-tagline">"{{ media.tagline }}"</p>
           <h3 v-if="media.artist" class="media-artist">by {{ media.artist }}</h3>
+          <p v-if="media.director" class="media-director">
+            Director: <strong>{{ media.director }}</strong>
+          </p>
 
           <!-- Canonical Content ID Chip -->
           <div class="contentid-row">
@@ -269,6 +333,27 @@ function copyContentId() {
               >
                 {{ g }}
               </span>
+            </div>
+          </div>
+
+          <!-- Top Cast Section -->
+          <div v-if="media.cast && media.cast.length > 0" class="cast-section">
+            <h3 class="section-heading">Top Cast</h3>
+            <div class="cast-grid">
+              <div v-for="actor in media.cast" :key="actor.name" class="cast-card card">
+                <img
+                  v-if="actor.profile"
+                  :src="actor.profile"
+                  :alt="actor.name"
+                  class="cast-photo"
+                  loading="lazy"
+                />
+                <div v-else class="cast-photo-fallback">👤</div>
+                <div class="cast-names">
+                  <span class="cast-actor">{{ actor.name }}</span>
+                  <span class="cast-char">{{ actor.character }}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -637,5 +722,95 @@ function copyContentId() {
   margin-left: auto;
   font-size: 0.78rem;
   color: var(--text-muted);
+}
+
+.badge-tmdb-score {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  font-weight: 700;
+}
+
+.badge-source {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-sky);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.media-tagline {
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.media-director {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.cast-section {
+  margin-bottom: 32px;
+}
+
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 12px;
+}
+
+.cast-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 8px;
+  background: var(--bg-surface);
+}
+
+.cast-photo {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.cast-photo-fallback {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  background: var(--bg-card);
+  margin-bottom: 8px;
+  border: 1px solid var(--border-subtle);
+}
+
+.cast-names {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.cast-actor {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.cast-char {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+  margin-top: 2px;
 }
 </style>
