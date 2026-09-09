@@ -102,38 +102,36 @@ function onLeave() {
 
 .stars-row {
   display: inline-flex;
-  gap: 3px;
+  gap: 2px;
 }
 
 .star-btn {
   background: none;
   border: none;
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   line-height: 1;
-  color: var(--border-hover);
+  color: #333333;
   cursor: pointer;
   padding: 3px;
-  transition: transform 0.2s var(--ease-bounce), color 0.15s ease, filter 0.2s ease;
+  transition: transform 0.15s ease, color 0.15s ease;
   user-select: none;
 }
 
 .star-btn:not(.is-readonly):hover {
-  transform: scale(1.35) rotate(-6deg);
+  transform: scale(1.15);
   color: var(--accent-amber);
-  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
 }
 
 .star-btn:not(.is-readonly):active {
-  transform: scale(0.9) rotate(4deg);
+  transform: scale(0.95);
 }
 
 .star-btn.is-filled {
   color: var(--accent-amber);
-  filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.35));
 }
 
 .star-btn.is-half {
-  background: linear-gradient(90deg, var(--accent-amber) 50%, var(--border-hover) 50%);
+  background: linear-gradient(90deg, var(--accent-amber) 50%, #333333 50%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -148,37 +146,32 @@ function onLeave() {
 }
 
 .score-badge-wrap {
-  min-width: 60px;
+  min-width: 54px;
 }
 
 .rating-value {
-  font-weight: 800;
-  font-size: 1rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.88rem;
   color: var(--accent-amber);
   display: inline-flex;
   align-items: baseline;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: var(--radius-xs);
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
-  transition: all 0.2s var(--ease-spring);
-}
-
-.rating-value.is-hovered {
-  transform: scale(1.08);
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.4);
+  background: #111111;
+  border: 1px solid #262626;
 }
 
 .rating-max {
-  font-size: 0.75rem;
-  color: rgba(245, 158, 11, 0.7);
-  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 400;
   margin-left: 2px;
 }
 
 .rating-empty {
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
@@ -193,8 +186,8 @@ function onLeave() {
   }
 
   .star-btn {
-    font-size: 1.45rem;
-    padding: 4px 2px;
+    font-size: 1.35rem;
+    padding: 3px 2px;
   }
 }
 </style>

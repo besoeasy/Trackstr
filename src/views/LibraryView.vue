@@ -303,27 +303,37 @@ function navigateToItem(contentId, media) {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 24px;
+  margin-bottom: 36px;
+  gap: 20px;
 }
 
 .page-title {
-  font-size: 2.2rem;
+  font-size: clamp(2.4rem, 5vw, 3.5rem);
   font-weight: 800;
-  margin-bottom: 4px;
+  letter-spacing: -0.05em;
+  line-height: 1.08;
+  color: var(--text-main);
+  margin-bottom: 8px;
 }
 
 .page-subtitle {
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 680px;
+  letter-spacing: -0.01em;
 }
 
 .auth-banner {
-  padding: 48px;
+  padding: 56px 24px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
+  max-width: 580px;
+  margin: 32px auto;
+  border-radius: var(--radius-lg);
 }
 
 .library-items-list {
@@ -336,13 +346,16 @@ function navigateToItem(contentId, media) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 20px 24px;
   cursor: pointer;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  transition: border-color var(--transition-fast);
 }
 
 .library-row:hover {
   border-color: var(--border-hover);
-  background: var(--bg-card-hover);
 }
 
 .row-media-info {
@@ -353,20 +366,20 @@ function navigateToItem(contentId, media) {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .row-progress {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--accent-sky);
-  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .row-title {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  margin-bottom: 4px;
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
 }
 
 .row-sub {
@@ -384,7 +397,8 @@ function navigateToItem(contentId, media) {
 }
 
 .row-rating {
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+  font-weight: 600;
   color: var(--accent-amber);
 }
 
@@ -398,7 +412,7 @@ function navigateToItem(contentId, media) {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .review-media-meta {
@@ -408,12 +422,13 @@ function navigateToItem(contentId, media) {
 }
 
 .review-title {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .review-score {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--accent-amber);
 }
 
@@ -424,13 +439,13 @@ function navigateToItem(contentId, media) {
 }
 
 .review-time {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
 .review-body {
   font-size: 0.92rem;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text-secondary);
 }
 

@@ -41,14 +41,18 @@ function handleLogout() {
   <header class="navbar">
     <div class="navbar-inner">
       <router-link to="/" class="brand">
-        <div class="brand-icon">T</div>
+        <div class="brand-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 1L24 22H0L12 1Z" />
+          </svg>
+        </div>
         <span class="brand-text">Trackstr</span>
       </router-link>
 
       <nav class="nav-links">
-        <router-link to="/" class="nav-link">Explore & Search</router-link>
+        <router-link to="/" class="nav-link">Explore</router-link>
         <router-link v-if="authStore.isAuthenticated" to="/library" class="nav-link">
-          My Library
+          Library
         </router-link>
         <router-link to="/activity" class="nav-link">Activity</router-link>
       </nav>
@@ -61,7 +65,7 @@ function handleLogout() {
           title="Extension & Network Diagnostics (Debug Logs)"
           @click="showDebug = true"
         >
-          🐞
+          <span style="font-size: 13px;">🐞</span>
         </button>
 
         <!-- Theme toggle (always available) -->
@@ -71,8 +75,8 @@ function handleLogout() {
           :title="`Switch to ${settingsStore.theme === 'dark' ? 'light' : 'dark'} mode`"
           @click="settingsStore.toggleTheme"
         >
-          <span v-if="settingsStore.theme === 'dark'">☀️</span>
-          <span v-else>🌙</span>
+          <span v-if="settingsStore.theme === 'dark'" style="font-size: 13px;">☀️</span>
+          <span v-else style="font-size: 13px;">🌙</span>
         </button>
 
         <!-- Settings (desktop) -->
@@ -82,29 +86,28 @@ function handleLogout() {
           title="Network & Settings"
           @click="showSettings = true"
         >
-          ⚙️
+          <span style="font-size: 13px;">⚙️</span>
         </button>
 
         <!-- Track Media (desktop) -->
         <button
-          class="btn btn-outline btn-sm btn-desktop-only"
+          class="btn btn-primary btn-sm btn-desktop-only"
           type="button"
           title="Track Movie, Series, or Music"
           @click="handleTrack"
         >
-          <span>+</span>
-          <span>Track</span>
+          <span>+ Track</span>
         </button>
 
         <!-- Nostr Auth (Extension or Bunker) -->
         <template v-if="!authStore.isAuthenticated">
           <button
-            class="btn btn-primary btn-auth"
+            class="btn btn-secondary btn-sm btn-auth"
             type="button"
             :disabled="authStore.isLoggingIn"
             @click="handleLogin"
           >
-            <span>⚡</span>
+            <span class="btn-auth-dot">●</span>
             <span class="btn-auth-text">{{ authStore.isLoggingIn ? 'Connecting...' : 'Connect' }}</span>
           </button>
         </template>
@@ -245,39 +248,45 @@ function handleLogout() {
   gap: 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  padding: 4px 12px 4px 4px;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px 4px 4px;
   cursor: pointer;
   color: var(--text-main);
-  transition: border-color var(--transition-fast);
+  transition: all var(--transition-fast);
 }
 
 .user-btn:hover {
   border-color: var(--border-hover);
+  background: var(--bg-card-hover);
 }
 
 .user-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
   object-fit: cover;
 }
 
 .user-avatar-placeholder {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  background: #ffffff;
+  color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+}
+
+[data-theme='light'] .user-avatar-placeholder {
+  background: #000000;
+  color: #ffffff;
 }
 
 .user-name {
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 500;
   max-width: 120px;
   white-space: nowrap;
@@ -287,15 +296,15 @@ function handleLogout() {
 
 .user-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   right: 0;
   width: 220px;
-  background: var(--bg-surface);
+  background: #0a0a0a;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 60;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .dropdown-header {
@@ -309,23 +318,23 @@ function handleLogout() {
 }
 
 .badge-bunker {
-  background: rgba(234, 179, 8, 0.15);
-  color: #eab308;
-  border: 1px solid rgba(234, 179, 8, 0.3);
-  font-size: 0.7rem;
+  background: #141414;
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  font-size: 0.68rem;
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+  border-radius: var(--radius-xs);
+  font-weight: 500;
 }
 
 .badge-extension {
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--primary);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  font-size: 0.7rem;
+  background: #141414;
+  color: #ededed;
+  border: 1px solid #333333;
+  font-size: 0.68rem;
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+  border-radius: var(--radius-xs);
+  font-weight: 500;
 }
 
 .auth-pill-badge {
@@ -349,7 +358,7 @@ function handleLogout() {
   align-items: center;
   width: 100%;
   padding: 8px 14px;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   color: var(--text-secondary);
   background: none;
   border: none;
@@ -359,15 +368,20 @@ function handleLogout() {
 }
 
 .dropdown-item:hover {
-  background: var(--primary-light);
-  color: var(--text-main);
+  background: #171717;
+  color: #ffffff;
 }
 
 .dropdown-logout {
   color: var(--accent-rose);
   border-top: 1px solid var(--border-subtle);
   margin-top: 4px;
-  padding-top: 10px;
+  padding-top: 8px;
+}
+
+.btn-auth-dot {
+  color: var(--accent-emerald);
+  font-size: 8px;
 }
 
 @media (max-width: 768px) {
@@ -381,7 +395,7 @@ function handleLogout() {
 
   .btn-auth {
     padding: 6px 12px;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
   }
 
   .user-name {

@@ -160,31 +160,47 @@ function navigateToMedia(tags) {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 24px;
+  margin-bottom: 36px;
+  gap: 20px;
 }
 
 .page-title {
-  font-size: 2.2rem;
+  font-size: clamp(2.4rem, 5vw, 3.5rem);
   font-weight: 800;
-  margin-bottom: 4px;
+  letter-spacing: -0.05em;
+  line-height: 1.08;
+  color: var(--text-main);
+  margin-bottom: 8px;
 }
 
 .page-subtitle {
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 680px;
+  letter-spacing: -0.01em;
 }
 
 .timeline-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 800px;
+  gap: 14px;
+  max-width: 860px;
 }
 
 .timeline-item {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  padding: 20px 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  transition: border-color var(--transition-fast);
+}
+
+.timeline-item:hover {
+  border-color: var(--border-hover);
 }
 
 .timeline-header {
@@ -200,7 +216,7 @@ function navigateToMedia(tags) {
 }
 
 .timeline-time {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
@@ -212,30 +228,39 @@ function navigateToMedia(tags) {
 }
 
 .timeline-media:hover .timeline-media-title {
-  color: var(--primary);
+  color: #ffffff;
+}
+
+[data-theme='light'] .timeline-media:hover .timeline-media-title {
+  color: #000000;
 }
 
 .timeline-media-title {
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 700;
+  letter-spacing: -0.025em;
   transition: color var(--transition-fast);
 }
 
 .timeline-rating {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--accent-amber);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .timeline-content {
   font-size: 0.92rem;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text-secondary);
   white-space: pre-line;
-  background: var(--bg-surface);
-  padding: 12px;
+  background: #000000;
+  padding: 14px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
+}
+
+[data-theme='light'] .timeline-content {
+  background: #f9f9f9;
 }
 
 @media (max-width: 640px) {

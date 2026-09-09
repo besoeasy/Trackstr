@@ -61,7 +61,7 @@ function selectStatus(val) {
 .status-pills-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -69,70 +69,45 @@ function selectStatus(val) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
-  font-size: 0.84rem;
-  font-weight: 600;
-  border-radius: var(--radius-full);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: #000000;
+  border: 1px solid #262626;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.25s var(--ease-spring);
+  transition: all var(--transition-fast);
   user-select: none;
 }
 
 .status-pill-btn:hover {
-  border-color: var(--border-hover);
+  border-color: #444444;
   color: var(--text-main);
-  transform: translateY(-2px);
-  background: var(--bg-card-hover);
+  background: #111111;
 }
 
 .status-pill-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
 }
 
 .pill-icon {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   line-height: 1;
 }
 
-/* Dynamic Active States with Spring Glow */
+/* Minimalist Active States */
 .status-pill-btn.is-active {
-  color: #fff;
-  transform: scale(1.04);
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+  font-weight: 600;
 }
 
-.status-pill-btn.is-active.pill-completed {
-  background: linear-gradient(135deg, #10b981, #059669);
-  border-color: #10b981;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
-}
-
-.status-pill-btn.is-active.pill-watching,
-.status-pill-btn.is-active.pill-listening {
-  background: linear-gradient(135deg, #0ea5e9, #0284c7);
-  border-color: #0ea5e9;
-  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.45);
-}
-
-.status-pill-btn.is-active.pill-plan-to-watch,
-.status-pill-btn.is-active.pill-plan-to-listen {
-  background: linear-gradient(135deg, var(--primary), #7c3aed);
-  border-color: var(--primary);
-  box-shadow: 0 4px 14px var(--primary-glow);
-}
-
-.status-pill-btn.is-active.pill-on-hold {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  border-color: #f59e0b;
-  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
-}
-
-.status-pill-btn.is-active.pill-dropped {
-  background: linear-gradient(135deg, #f43f5e, #e11d48);
-  border-color: #f43f5e;
-  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.45);
+[data-theme='light'] .status-pill-btn.is-active {
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
 }
 
 @media (max-width: 640px) {
@@ -141,7 +116,7 @@ function selectStatus(val) {
   }
 
   .status-pill-btn {
-    padding: 7px 12px;
+    padding: 6px 10px;
     font-size: 0.8rem;
   }
 }

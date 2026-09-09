@@ -110,17 +110,17 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   z-index: 999;
-  background: var(--bg-surface);
-  border: 2px solid var(--primary);
-  box-shadow: 0 0 24px var(--primary-glow), var(--shadow-lg);
-  border-radius: var(--radius-md);
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-sm);
   padding: 14px 20px;
   display: flex;
   align-items: center;
   gap: 12px;
   max-width: 620px;
   width: calc(100% - 40px);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 @media (max-width: 768px) {
@@ -132,8 +132,7 @@ onUnmounted(() => {
 }
 
 .signing-pulse {
-  font-size: 1.4rem;
-  animation: pulse 1s infinite alternate;
+  font-size: 1.2rem;
 }
 
 .signing-text {
@@ -152,7 +151,7 @@ onUnmounted(() => {
 .signing-desc {
   font-size: 0.82rem;
   color: var(--text-secondary);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .btn-banner-dismiss {
@@ -173,47 +172,39 @@ onUnmounted(() => {
 
 .kind-tag {
   font-family: var(--font-mono);
-  background: var(--primary-light);
-  color: var(--primary);
-  padding: 2px 6px;
+  background: #141414;
+  color: #ededed;
+  border: 1px solid #333333;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .banner-auth-link {
   display: inline-block;
   margin-top: 6px;
-  background: var(--primary);
-  color: #fff;
+  background: #ffffff;
+  color: #000000;
   padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 0.82rem;
-  font-weight: 600;
+  border-radius: var(--radius-xs);
+  font-size: 0.8rem;
+  font-weight: 500;
   text-decoration: none;
   transition: opacity var(--transition-fast);
 }
 
 .banner-auth-link:hover {
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .slide-enter-active,
 .slide-leave-active {
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
 }
 
 .slide-enter-from,
 .slide-leave-to {
   opacity: 0;
-  transform: translate(-50%, 20px);
-}
-
-@keyframes pulse {
-  from {
-    transform: scale(0.9);
-  }
-  to {
-    transform: scale(1.15);
-  }
+  transform: translate(-50%, 16px);
 }
 </style>

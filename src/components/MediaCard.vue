@@ -110,19 +110,8 @@ function navigateToDetail() {
   bottom: 8px;
   right: 8px;
   z-index: 2;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  animation: popIn 0.3s var(--ease-spring);
-}
-
-@keyframes popIn {
-  from {
-    opacity: 0;
-    transform: scale(0.7);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  border-radius: var(--radius-xs);
+  font-size: 0.68rem;
 }
 
 .media-artist {
@@ -137,25 +126,24 @@ function navigateToDetail() {
   top: 8px;
   right: 8px;
   z-index: 2;
-  font-size: 0.72rem;
-  font-weight: 700;
-  background: rgba(15, 17, 26, 0.88);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--accent-amber);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  padding: 2px 7px;
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  padding: 2px 6px;
   border-radius: var(--radius-xs);
-  transition: transform 0.2s var(--ease-spring);
-}
-
-.media-card:hover .card-vote-badge {
-  transform: scale(1.08);
 }
 
 .media-card:hover .media-title {
-  color: var(--primary);
-  transition: color 0.2s ease;
+  color: #ffffff;
+}
+
+[data-theme='light'] .media-card:hover .media-title {
+  color: #000000;
 }
 
 .card-sources {
@@ -165,32 +153,27 @@ function navigateToDetail() {
 }
 
 .source-chip {
+  font-family: var(--font-mono);
   font-size: 0.65rem;
   padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-surface);
-  color: var(--accent-sky);
-  border: 1px solid var(--border-subtle);
-  transition: transform 0.2s var(--ease-spring), border-color 0.2s ease;
-}
-
-.media-card:hover .source-chip {
-  border-color: rgba(14, 165, 233, 0.35);
-  transform: translateY(-1px);
+  border-radius: var(--radius-xs);
+  background: #111111;
+  color: #888888;
+  border: 1px solid #222222;
 }
 
 .media-card:active {
-  transform: scale(0.97);
+  transform: scale(0.99);
 }
 
 @media (max-width: 640px) {
   .media-card-body {
-    padding: 10px;
+    padding: 10px 12px;
   }
 
   .media-title {
-    font-size: 0.88rem;
-    line-height: 1.25;
+    font-size: 0.9rem;
+    line-height: 1.3;
   }
 
   .media-meta {
