@@ -90,7 +90,7 @@ function handleLogout() {
           <span>+ Track</span>
         </router-link>
 
-        <!-- Nostr Auth (Extension or Bunker) -->
+        <!-- Nostr Auth (Extension, nsec, or Disposable) -->
         <template v-if="!authStore.isAuthenticated">
           <router-link
             to="/connect"
@@ -118,15 +118,15 @@ function handleLogout() {
                 {{ authStore.displayName.slice(0, 1).toUpperCase() }}
               </div>
               <span class="user-name">{{ authStore.displayName }}</span>
-              <span class="auth-pill-badge" :title="authStore.authType === 'bunker' ? 'Bunker Remote Signer' : 'Extension Signer'">
-                {{ authStore.authType === 'bunker' ? '⚡' : '🧩' }}
+              <span class="auth-pill-badge" :title="authStore.authType === 'nsec' ? 'Local nsec Signer' : 'Extension Signer'">
+                {{ authStore.authType === 'nsec' ? '🔑' : '🧩' }}
               </span>
             </button>
 
             <div v-if="showUserMenu" class="user-dropdown">
               <div class="dropdown-header">
                 <div class="dropdown-auth-badge">
-                  <span v-if="authStore.authType === 'bunker'" class="badge badge-bunker">⚡ Bunker (NIP-46)</span>
+                  <span v-if="authStore.authType === 'nsec'" class="badge badge-nsec">🔑 nsec (Local)</span>
                   <span v-else class="badge badge-extension">🧩 Extension (NIP-07)</span>
                 </div>
                 <span class="dropdown-npub">{{ authStore.npub }}</span>
@@ -293,7 +293,7 @@ function handleLogout() {
   margin-bottom: 6px;
 }
 
-.badge-bunker {
+.badge-nsec {
   background: #141414;
   color: var(--accent-amber);
   border: 1px solid rgba(245, 166, 35, 0.3);
