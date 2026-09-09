@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
-import { bunkerService } from '@/services/nostr/bunker.js'
 import { getLogs, clearLogs, subscribeLogs, logger } from '@/utils/logger.js'
 
 const router = useRouter()
@@ -13,7 +12,6 @@ const logs = ref(getLogs())
 const logContainer = ref(null)
 const diagnostics = ref(nostrClient.getDiagnostics())
 const isTestingExtension = ref(false)
-const isTestingBunker = ref(false)
 const testResult = ref(null)
 const copied = ref(false)
 
@@ -91,36 +89,6 @@ async function testExtension() {
   }
 }
 
-async function testBunker() {
-  isTestingBunker.value = true
-  testResult.value = null
-  logger.info('Diagnostics', 'Running Bunker connection test...')
-
-  try {
-    diagnostics.value = nostrClient.getDiagnostics()
-    if (!bunkerService.isConnected()) {
-      throw new Error('No active Bunker session connected. Log in via Bunker (NIP-46) first.')
-    }
-
-    logger.info('Diagnostics', 'Calling bunker.getPublicKey()...')
-    const pk = await bunkerService.getPublicKey()
-    testResult.value = {
-      success: true,
-      message: `Success! Bunker responded with public key: ${pk}`,
-    }
-    logger.info('Diagnostics', `Bunker test passed! Pubkey: ${pk}`)
-  } catch (err) {
-    const msg = err?.message || String(err)
-    testResult.value = {
-      success: false,
-      message: msg,
-    }
-    logger.error('Diagnostics', `Bunker test failed: ${msg}`, err)
-  } finally {
-    isTestingBunker.value = false
-  }
-}
-
 function handleCopyLogs() {
   const text = logs.value
     .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.tag}] ${l.message} ${l.data ? JSON.stringify(l.data) : ''}`)
@@ -158,7 +126,7 @@ function handleClearLogs() {
         </div>
         <h1 class="debug-title">Nostr & Network Diagnostics</h1>
         <p class="debug-subtitle">
-          Real-time inspect NIP-07 browser extension state, NIP-46 remote bunker latency, and live application logs.
+          Real-time inspect NIP-07 browser extension state, local nsec signer status, and live application logs.
         </p>
       </header>
 
@@ -193,12 +161,12 @@ function handleClearLogs() {
           </div>
 
           <div class="diag-item">
-            <span class="diag-label">NIP-46 Bunker</span>
+            <span class="diag-label">Local nsec Signer</span>
             <span
               class="badge"
-              :class="diagnostics.bunkerConnected ? 'badge-success' : 'badge-neutral'"
+              :class="diagnostics.localSignerConnected ? 'badge-success' : 'badge-neutral'"
             >
-              {{ diagnostics.bunkerConnected ? 'Connected' : 'Not Active' }}
+              {{ diagnostics.localSignerConnected ? 'Connected' : 'Not Active' }}
             </span>
           </div>
 
@@ -212,20 +180,10 @@ function handleClearLogs() {
           <button
             class="btn btn-primary btn-sm"
             type="button"
-            :disabled="isTestingExtension || isTestingBunker"
+            :disabled="isTestingExtension"
             @click="testExtension"
           >
             {{ isTestingExtension ? 'Testing Extension...' : '🧪 Test Extension Call' }}
-          </button>
-
-          <button
-            v-if="diagnostics.bunkerConnected"
-            class="btn btn-outline btn-sm"
-            type="button"
-            :disabled="isTestingExtension || isTestingBunker"
-            @click="testBunker"
-          >
-            {{ isTestingBunker ? 'Testing Bunker...' : '⚡ Test Bunker Call' }}
           </button>
         </div>
 
