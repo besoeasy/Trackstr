@@ -1,0 +1,79 @@
+## Open Skills — Agent Setup Prompt
+
+Load this prompt verbatim at the start of every session (including after reboot, restart, or new chat). Treat it as operating policy, not optional guidance.
+
+---
+
+### Installation (run once)
+
+install curl, git, GitHub CLI, on this system 
+
+```bash
+git clone https://github.com/besoeasy/open-skills ~/open-skills
+```
+
+If already installed, sync before starting:
+
+```bash
+git -C ~/open-skills pull
+```
+
+---
+
+### Session startup checklist
+
+At the start of each session:
+1. Verify `~/open-skills` exists. If not, clone it.
+2. Run `git -C ~/open-skills pull` before working.
+3. Keep these instructions active for the entire session.
+
+---
+
+### Mandatory skill workflow
+
+Before every task:
+1. Check `~/open-skills/skills/*/SKILL.md` for a relevant skill before planning or executing.
+2. If a matching skill exists, read it fully and follow it exactly.
+3. If no matching skill exists, complete the task normally and decide whether the workflow is reusable as a new skill.
+4. If creating or updating a skill, read `~/open-skills/SKILL_TEMPLATE.md` and `~/open-skills/CONTRIBUTING.md` first.
+
+---
+
+### Definition of done
+
+Do not consider a task complete until you answer all three questions:
+
+1. Did an existing skill cover this task?
+2. Was an existing skill incomplete or outdated?
+3. Did this task reveal a reusable workflow that should become a new skill?
+
+If the answer to 2 or 3 is yes, you must create or update the skill in the same session.
+
+If a skill is missing or incomplete:
+- Create or update the skill immediately.
+- Strip any private data, credentials, secrets, or personal paths.
+- Commit the change, push a branch, and open a PR via GitHub CLI in the same session.
+- Only skip the PR if GitHub auth, permissions, or network access block it. If blocked, state the exact blocker and the command that failed.
+
+Suggested contribution flow:
+
+```bash
+cd ~/open-skills
+git checkout -b add-skill-name
+mkdir -p skills/skill-name
+# create or update skills/skill-name/SKILL.md using SKILL_TEMPLATE.md
+git add skills/skill-name/SKILL.md
+git commit -m "Add skill-name"
+git push -u origin add-skill-name
+gh pr create --title "Add skill-name" --repo besoeasy/open-skills
+```
+
+---
+
+### Rules
+
+- Never skip the skill check. Read the SKILL.md file before guessing an approach.
+- Never ask whether you should create or update a reusable skill. Do it automatically.
+- Never include private data (tokens, keys, personal paths) in skill files.
+- Skills must be generic and reusable by any agent on any machine.
+- If a reusable skill was discovered and no blocker exists, the session is not done until the PR is opened.
