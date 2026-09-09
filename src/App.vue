@@ -4,21 +4,51 @@ import Navbar from '@/components/Navbar.vue'
 import { useSettingsStore } from '@/stores/settings.js'
 
 const settingsStore = useSettingsStore()
-const isSigningActive = ref(false)
-const signingKind = ref(null)
+const isActionActive = ref(false)
+const actionInfo = ref({
+  type: 'sign',
+  title: 'Extension Action Required',
+  message: 'Please check your browser extension to continue.',
+  kind: null,
+})
 
-function onSigningEvent(e) {
-  isSigningActive.value = !!e.detail?.active
-  signingKind.value = e.detail?.kind || null
+function onExtensionAction(e) {
+  if (!e.detail) return
+  isActionActive.value = !!e.detail.active
+  if (e.detail.active) {
+    actionInfo.value = {
+      type: e.detail.type || 'sign',
+      title: e.detail.title || 'Extension Action Required',
+      message: e.detail.message || 'Please check your browser extension to continue.',
+      kind: e.detail.kind || null,
+    }
+  }
+}
+
+function onSigningLegacy(e) {
+  if (!e.detail) return
+  if (!isActionActive.value && e.detail.active) {
+    isActionActive.value = true
+    actionInfo.value = {
+      type: 'sign',
+      title: 'Approve Event Signature',
+      message: 'Please check your browser extension (e.g. Alby, nos2x icon in your toolbar) to approve signing.',
+      kind: e.detail.kind || null,
+    }
+  } else if (!e.detail.active) {
+    isActionActive.value = false
+  }
 }
 
 onMounted(() => {
   document.documentElement.setAttribute('data-theme', settingsStore.theme)
-  window.addEventListener('trackstr:signing', onSigningEvent)
+  window.addEventListener('trackstr:extension-action', onExtensionAction)
+  window.addEventListener('trackstr:signing', onSigningLegacy)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('trackstr:signing', onSigningEvent)
+  window.removeEventListener('trackstr:extension-action', onExtensionAction)
+  window.removeEventListener('trackstr:signing', onSigningLegacy)
 })
 </script>
 
@@ -26,14 +56,25 @@ onUnmounted(() => {
   <div class="app-container">
     <Navbar />
 
-    <!-- Active Extension Signing Prompt -->
+    <!-- Active Extension Prompt Banner -->
     <transition name="slide">
-      <div v-if="isSigningActive" class="signing-banner">
+      <div v-if="isActionActive" class="signing-banner">
         <span class="signing-pulse">⚡</span>
         <div class="signing-text">
-          <strong>Extension Approval Required:</strong> Please check your browser extension (e.g. Alby, nos2x icon in your toolbar) to approve signing event
-          <span v-if="signingKind" class="kind-tag">Kind {{ signingKind }}</span>.
+          <div class="signing-head">
+            <strong>{{ actionInfo.title }}</strong>
+            <span v-if="actionInfo.kind" class="kind-tag">Kind {{ actionInfo.kind }}</span>
+          </div>
+          <div class="signing-desc">{{ actionInfo.message }}</div>
         </div>
+        <button
+          class="btn-banner-dismiss"
+          type="button"
+          title="Dismiss banner"
+          @click="isActionActive = false"
+        >
+          ✕
+        </button>
       </div>
     </transition>
 
@@ -71,6 +112,36 @@ onUnmounted(() => {
 .signing-text {
   color: var(--text-main);
   line-height: 1.4;
+  flex: 1;
+}
+
+.signing-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.signing-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.btn-banner-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: var(--radius-xs);
+  transition: color var(--transition-fast);
+}
+
+.btn-banner-dismiss:hover {
+  color: var(--text-main);
 }
 
 .kind-tag {

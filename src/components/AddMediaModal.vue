@@ -137,8 +137,8 @@ async function handleSave() {
     await mediaStore.setStatus(mediaObj, status.value, progressStr, note.value)
 
     // 2. Publish Rating (Kind 35400) if selected
-    if (rating.value !== null && rating.value !== undefined) {
-      await mediaStore.setRating(mediaObj, rating.value, note.value)
+    if (rating.value !== null && rating.value !== undefined && Number(rating.value) > 0) {
+      await mediaStore.setRating(mediaObj, Number(rating.value), note.value)
     }
 
     emit('saved', mediaObj)

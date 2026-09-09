@@ -3,9 +3,9 @@
  */
 
 export const DEFAULT_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
   'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://relay.snort.social',
   'wss://purplerelay.com',
 ]
 
@@ -19,8 +19,16 @@ export function getRelays() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
-      const parsed = JSON.parse(saved)
+      let parsed = JSON.parse(saved)
       if (Array.isArray(parsed) && parsed.length > 0) {
+        // Automatically migrate users away from down/503 damus.io default
+        if (parsed[0] === 'wss://relay.damus.io') {
+          parsed = parsed.filter((r) => r !== 'wss://relay.damus.io')
+          if (!parsed.includes('wss://relay.snort.social')) {
+            parsed.push('wss://relay.snort.social')
+          }
+          saveRelays(parsed)
+        }
         return parsed
       }
     }

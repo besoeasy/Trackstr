@@ -160,7 +160,32 @@ class NostrClient {
 
     try {
       logger.info('NostrClient', 'Calling window.nostr.getPublicKey()... (check for extension approval prompt)')
-      const hex = await window.nostr.getPublicKey()
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('trackstr:extension-action', {
+            detail: {
+              active: true,
+              type: 'auth',
+              title: 'Extension Authorization Required',
+              message:
+                'Check for the extension prompt window (e.g. nos2x, Alby). If not visible, check behind your browser window, your taskbar, or click your extension icon in the toolbar.',
+            },
+          })
+        )
+      }
+
+      const getPkPromise = window.nostr.getPublicKey()
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(
+            new Error(
+              'Extension authorization request timed out after 45s. Please check if your browser blocked an extension popup window, or click the nos2x/Alby icon in your toolbar.'
+            )
+          )
+        }, 45000)
+      })
+
+      const hex = await Promise.race([getPkPromise, timeoutPromise])
 
       if (!hex || typeof hex !== 'string') {
         throw new Error(`Extension returned empty or invalid public key: ${JSON.stringify(hex)}`)
@@ -180,6 +205,14 @@ class NostrClient {
         raw: err,
       })
       throw err
+    } finally {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('trackstr:extension-action', {
+            detail: { active: false },
+          })
+        )
+      }
     }
   }
 
@@ -222,6 +255,17 @@ class NostrClient {
 
     try {
       if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('trackstr:extension-action', {
+            detail: {
+              active: true,
+              type: 'sign',
+              kind: fullTemplate.kind,
+              title: `Approve Event (Kind ${fullTemplate.kind})`,
+              message: `Please approve the Kind ${fullTemplate.kind} signing request in your browser extension. If the popup didn't appear in front, check behind your browser window or in your taskbar.`,
+            },
+          })
+        )
         window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: true, kind: fullTemplate.kind } }))
       }
       const signed = await Promise.race([signPromise, timeoutPromise])
@@ -235,6 +279,11 @@ class NostrClient {
       throw err
     } finally {
       if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('trackstr:extension-action', {
+            detail: { active: false },
+          })
+        )
         window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: false } }))
       }
     }

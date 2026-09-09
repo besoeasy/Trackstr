@@ -54,8 +54,10 @@ async function executeSearch() {
       items = await searchMusicBrainz(q)
     }
 
-    // Attach computed canonical Content IDs to all results
-    const enriched = []
+    // Attach computed canonical Content IDs to all results and deduplicate
+    const seenContentIds = new Set()
+    const uniqueEnriched = []
+
     for (const item of items) {
       const { contentId, canonicalString } = await computeContentId({
         type: item.type,
@@ -63,17 +65,21 @@ async function executeSearch() {
         year: item.year,
         artist: item.artist,
       })
-      const fullItem = {
-        ...item,
-        contentId,
-        canonicalString,
+
+      if (!seenContentIds.has(contentId)) {
+        seenContentIds.add(contentId)
+        const fullItem = {
+          ...item,
+          contentId,
+          canonicalString,
+        }
+        uniqueEnriched.push(fullItem)
+        // Cache in media store so detail view has instant data
+        mediaStore.cacheMediaItem(fullItem)
       }
-      enriched.push(fullItem)
-      // Cache in media store so detail view has instant data
-      mediaStore.cacheMediaItem(fullItem)
     }
 
-    results.value = enriched
+    results.value = uniqueEnriched
   } catch (err) {
     console.error('Search failed:', err)
   } finally {
@@ -102,7 +108,9 @@ onMounted(() => {
 })
 
 async function loadInitialSamples() {
-  const enriched = []
+  const seenContentIds = new Set()
+  const uniqueEnriched = []
+
   for (const item of [...SAMPLE_MEDIA, ...SAMPLE_MUSIC]) {
     const { contentId, canonicalString } = await computeContentId({
       type: item.type,
@@ -110,11 +118,15 @@ async function loadInitialSamples() {
       year: item.year,
       artist: item.artist,
     })
-    const full = { ...item, contentId, canonicalString }
-    enriched.push(full)
-    mediaStore.cacheMediaItem(full)
+
+    if (!seenContentIds.has(contentId)) {
+      seenContentIds.add(contentId)
+      const full = { ...item, contentId, canonicalString }
+      uniqueEnriched.push(full)
+      mediaStore.cacheMediaItem(full)
+    }
   }
-  results.value = enriched
+  results.value = uniqueEnriched
 }
 </script>
 
