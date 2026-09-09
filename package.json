@@ -1,6 +1,46 @@
 {
   "name": "trackstr",
   "version": "0.0.0",
+  "description": "Open-source media tracker — Letterboxd + Trakt + Last.fm alternative for movies, TV shows & music. Decentralized, privacy-first tracking, ratings, reviews & watchlists on Nostr + IPFS.",
+  "keywords": [
+    "open-source",
+    "media-tracker",
+    "movie-tracker",
+    "tv-tracker",
+    "music-tracker",
+    "watchlist",
+    "letterboxd-alternative",
+    "trakt-alternative",
+    "lastfm-alternative",
+    "scrobbler",
+    "movie-ratings",
+    "movie-reviews",
+    "tv-show-tracker",
+    "music-discovery",
+    "decentralized",
+    "nostr",
+    "ipfs",
+    "privacy",
+    "self-hosted",
+    "social-network",
+    "tmdb",
+    "musicbrainz",
+    "spotify",
+    "plex",
+    "jellyfin",
+    "vuejs",
+    "vite"
+  ],
+  "homepage": "https://trackstr.besoeasy.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/besoeasy/Trackstr.git"
+  },
+  "bugs": {
+    "url": "https://github.com/besoeasy/Trackstr/issues"
+  },
+  "author": "besoeasy",
+  "license": "TBD",
   "private": true,
   "type": "module",
   "scripts": {
