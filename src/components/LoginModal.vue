@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
+import { bunkerService, POPULAR_BUNKER_RELAYS } from '@/services/nostr/bunker.js'
 
 const emit = defineEmits(['close', 'open-debug'])
 
@@ -13,19 +14,97 @@ const bunkerInput = ref(localStorage.getItem('trackstr_bunker_input') || '')
 const pendingAuthUrl = ref('')
 const hasExtension = ref(nostrClient.hasExtension())
 
+// QR Code state for Bunker connection
+const qrDataUrl = ref('')
+const nostrConnectUri = ref('')
+const isGeneratingQr = ref(false)
+const selectedRelays = ref(['wss://nos.lol', 'wss://relay.primal.net'])
+const copied = ref(false)
+const showManualInput = ref(false)
+let abortController = null
+
 function onBunkerAuth(e) {
   if (e.detail?.url) {
     pendingAuthUrl.value = e.detail.url
   }
 }
 
+async function initQrSession() {
+  if (abortController) {
+    abortController.abort()
+  }
+  abortController = new AbortController()
+  isGeneratingQr.value = true
+
+  try {
+    const session = await bunkerService.generateNostrConnectSession({
+      relays: selectedRelays.value,
+      name: 'Trackstr',
+    })
+    qrDataUrl.value = session.qrDataUrl
+    nostrConnectUri.value = session.uri
+    isGeneratingQr.value = false
+
+    // Start background listening on the popular relay
+    authStore
+      .loginWithNostrConnectUri(session.uri, {
+        abortSignal: abortController.signal,
+        onAuthUrl: (url) => {
+          pendingAuthUrl.value = url
+        },
+      })
+      .then((res) => {
+        if (res) {
+          emit('close')
+        }
+      })
+      .catch(() => {
+        // Silently handled or surfaced in authStore.loginError
+      })
+  } catch (err) {
+    isGeneratingQr.value = false
+    console.error('Failed to generate Nostr Connect session:', err)
+  }
+}
+
+function handleCopyLink() {
+  if (!nostrConnectUri.value) return
+  navigator.clipboard.writeText(nostrConnectUri.value)
+  copied.value = true
+  setTimeout(() => {
+    copied.value = false
+  }, 2000)
+}
+
+function handleRefreshQr() {
+  initQrSession()
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'bunker') {
+    initQrSession()
+  } else {
+    if (abortController) {
+      abortController.abort()
+      abortController = null
+    }
+  }
+})
+
 onMounted(() => {
   hasExtension.value = nostrClient.hasExtension()
   window.addEventListener('trackstr:bunker-auth', onBunkerAuth)
+  if (activeTab.value === 'bunker') {
+    initQrSession()
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('trackstr:bunker-auth', onBunkerAuth)
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
 })
 
 async function handleExtensionConnect() {
@@ -39,6 +118,10 @@ async function handleExtensionConnect() {
 
 async function handleBunkerConnect() {
   if (!bunkerInput.value.trim()) return
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
   pendingAuthUrl.value = ''
   try {
     await authStore.loginWithBunker(bunkerInput.value.trim(), {
@@ -64,6 +147,10 @@ function selectPreset(suffix) {
 }
 
 function handleOpenDebug() {
+  if (abortController) {
+    abortController.abort()
+    abortController = null
+  }
   emit('close')
   emit('open-debug')
 }
@@ -161,45 +248,63 @@ function handleOpenDebug() {
             </p>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="bunker-input">
-              Bunker URI or NIP-05 Remote Signer
-            </label>
-            <input
-              id="bunker-input"
-              v-model="bunkerInput"
-              type="text"
-              class="form-input"
-              placeholder="e.g. user@nsec.app or bunker://<pubkey>?relay=wss://..."
-              :disabled="authStore.isLoggingIn"
-              @keydown.enter="handleBunkerConnect"
-            />
-          </div>
+          <!-- QR Code Hero Card -->
+          <div class="qr-connection-card">
+            <div class="qr-card-header">
+              <span class="qr-badge-title">Scan with Nostr Signer</span>
+              <div class="relay-pulse-indicator" title="Connected to popular Nostr relay">
+                <span class="pulse-dot"></span>
+                <span class="relay-name">Relay: {{ selectedRelays[0].replace('wss://', '') }}</span>
+              </div>
+            </div>
 
-          <!-- Quick Presets -->
-          <div class="preset-row">
-            <span class="preset-label">Quick helpers:</span>
-            <button
-              class="preset-chip"
-              type="button"
-              @click="selectPreset('@nsec.app')"
-            >
-              @nsec.app
-            </button>
-            <button
-              class="preset-chip"
-              type="button"
-              @click="selectPreset('@primal.net')"
-            >
-              @primal.net
-            </button>
-            <button
-              class="preset-chip"
-              type="button"
-              @click="selectPreset('bunker://')"
-            >
-              bunker://
-            </button>
+            <!-- QR Code Canvas / Image -->
+            <div class="qr-frame">
+              <div v-if="isGeneratingQr" class="qr-placeholder">
+                <div class="btn-spinner large-spinner"></div>
+                <span class="qr-loading-text">Generating secure QR code...</span>
+              </div>
+              <img
+                v-else-if="qrDataUrl"
+                :src="qrDataUrl"
+                alt="Scan to Connect Nostr Bunker"
+                class="qr-code-img"
+              />
+            </div>
+
+            <p class="qr-caption">
+              Scan with <strong>Amber</strong> (Android), <strong>Keystr</strong>, <strong>nsec.app</strong>, or any remote signer app to authorize Trackstr.
+            </p>
+
+            <!-- Quick Connection Action Buttons -->
+            <div class="qr-actions-row">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :title="nostrConnectUri"
+                @click="handleCopyLink"
+              >
+                <span>{{ copied ? '✓ Copied Link' : '📋 Copy Link' }}</span>
+              </button>
+
+              <a
+                v-if="nostrConnectUri"
+                :href="nostrConnectUri"
+                class="btn btn-primary btn-sm btn-open-signer"
+                title="Open directly in installed signer app on mobile"
+              >
+                <span>⚡ Open Signer</span>
+              </a>
+
+              <button
+                class="btn btn-icon btn-sm"
+                type="button"
+                title="Generate fresh QR code"
+                @click="handleRefreshQr"
+              >
+                🔄
+              </button>
+            </div>
           </div>
 
           <!-- Remote Auth URL Callout (if Bunker requires confirmation) -->
@@ -222,19 +327,69 @@ function handleOpenDebug() {
           <!-- Connecting Status -->
           <div v-if="authStore.isLoggingIn" class="bunker-status-box">
             <span class="btn-spinner"></span>
-            <span>{{ authStore.loginStatusMessage || 'Establishing NIP-46 encrypted channel...' }}</span>
+            <span>{{ authStore.loginStatusMessage || 'Listening for remote signer connection on relay...' }}</span>
           </div>
 
-          <div class="action-row">
+          <!-- Manual Fallback Collapsible -->
+          <div class="manual-toggle-section">
             <button
-              class="btn btn-primary btn-block"
+              class="manual-toggle-btn"
               type="button"
-              :disabled="authStore.isLoggingIn || !bunkerInput.trim()"
-              @click="handleBunkerConnect"
+              @click="showManualInput = !showManualInput"
             >
-              <span v-if="authStore.isLoggingIn" class="btn-spinner"></span>
-              <span>{{ authStore.isLoggingIn ? 'Connecting to Bunker...' : 'Connect Bunker' }}</span>
+              <span class="toggle-arrow">{{ showManualInput ? '▼' : '▶' }}</span>
+              <span>Or enter bunker:// URI or NIP-05 address</span>
             </button>
+
+            <div v-if="showManualInput" class="manual-input-box">
+              <div class="form-group">
+                <input
+                  id="bunker-input"
+                  v-model="bunkerInput"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g. user@nsec.app or bunker://<pubkey>?relay=wss://..."
+                  :disabled="authStore.isLoggingIn"
+                  @keydown.enter="handleBunkerConnect"
+                />
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="preset-row">
+                <span class="preset-label">Quick helpers:</span>
+                <button
+                  class="preset-chip"
+                  type="button"
+                  @click="selectPreset('@nsec.app')"
+                >
+                  @nsec.app
+                </button>
+                <button
+                  class="preset-chip"
+                  type="button"
+                  @click="selectPreset('@primal.net')"
+                >
+                  @primal.net
+                </button>
+                <button
+                  class="preset-chip"
+                  type="button"
+                  @click="selectPreset('bunker://')"
+                >
+                  bunker://
+                </button>
+              </div>
+
+              <button
+                class="btn btn-secondary btn-block btn-sm"
+                type="button"
+                :disabled="authStore.isLoggingIn || !bunkerInput.trim()"
+                @click="handleBunkerConnect"
+              >
+                <span v-if="authStore.isLoggingIn" class="btn-spinner"></span>
+                <span>{{ authStore.isLoggingIn ? 'Connecting...' : 'Connect via Address' }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -559,5 +714,187 @@ function handleOpenDebug() {
 .footer-hint {
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+/* Bunker QR Code Styles */
+.qr-connection-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.3s ease;
+}
+
+.qr-connection-card:hover {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.qr-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.qr-badge-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+
+.relay-pulse-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+}
+
+.relay-name {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.7;
+  }
+}
+
+.qr-frame {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), 0 0 20px rgba(139, 92, 246, 0.2);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  min-height: 220px;
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.qr-frame:hover {
+  transform: scale(1.02);
+}
+
+.qr-code-img {
+  width: 200px;
+  height: 200px;
+  display: block;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
+
+.qr-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 200px;
+  height: 200px;
+}
+
+.large-spinner {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+  border-color: rgba(99, 102, 241, 0.2);
+  border-top-color: var(--primary);
+}
+
+.qr-loading-text {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.qr-caption {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0 0 14px 0;
+  max-width: 360px;
+}
+
+.qr-caption strong {
+  color: var(--text-main);
+}
+
+.qr-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-open-signer {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Manual NIP-05 Toggle */
+.manual-toggle-section {
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 14px;
+  margin-top: 10px;
+}
+
+.manual-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 4px 0;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+  width: 100%;
+  text-align: left;
+}
+
+.manual-toggle-btn:hover {
+  color: var(--primary);
+}
+
+.toggle-arrow {
+  font-size: 0.65rem;
+  opacity: 0.8;
+}
+
+.manual-input-box {
+  margin-top: 12px;
+  animation: fadeIn 0.25s ease;
 }
 </style>

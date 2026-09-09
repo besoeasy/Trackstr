@@ -153,6 +153,56 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * Log in using Nostr Connect QR code URI
+   * @param {string} uri nostrconnect:// URI
+   * @param {Object} [options]
+   */
+  async function loginWithNostrConnectUri(uri, options = {}) {
+    isLoggingIn.value = true
+    loginError.value = ''
+    loginStatusMessage.value = 'Waiting for signer connection...'
+    lastErrorDetails.value = null
+
+    try {
+      const result = await bunkerService.listenForNostrConnect(uri, {
+        pool: nostrClient.pool,
+        abortSignal: options.abortSignal,
+        onStatus: (msg) => {
+          loginStatusMessage.value = msg
+        },
+        onAuthUrl: options.onAuthUrl,
+      })
+
+      pubkey.value = result.pubkey
+      authType.value = 'bunker'
+      bunkerPointer.value = result.pointer
+
+      logger.info('AuthStore', `Bunker QR login successful! Pubkey: ${result.pubkey}`)
+
+      closeLoginModal()
+      fetchUserProfile(result.pubkey)
+      return result.pubkey
+    } catch (err) {
+      if (options.abortSignal?.aborted) {
+        return null
+      }
+      const msg = err?.message || String(err)
+      logger.error('AuthStore', `Bunker QR login failed: ${msg}`, err)
+      loginError.value = msg
+      lastErrorDetails.value = {
+        message: msg,
+        stack: err?.stack || null,
+        diagnostics: diagnostics.value,
+        timestamp: new Date().toISOString(),
+      }
+      throw err
+    } finally {
+      isLoggingIn.value = false
+      loginStatusMessage.value = ''
+    }
+  }
+
+  /**
    * Fetch profile metadata (kind 0)
    */
   async function fetchUserProfile(hex) {
@@ -212,6 +262,7 @@ export const useAuthStore = defineStore('auth', () => {
     closeLoginModal,
     loginWithExtension,
     loginWithBunker,
+    loginWithNostrConnectUri,
     refreshDiagnostics,
     fetchUserProfile,
     logout,

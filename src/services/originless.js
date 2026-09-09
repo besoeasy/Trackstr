@@ -5,18 +5,17 @@
  */
 
 export const DEFAULT_ORIGINLESS_INSTANCE = 'https://originless.gupt.app'
+export const DEFAULT_IPFS_RESOLVE_GATEWAY = 'https://dweb.link'
 
 /**
  * Resolves an ipfs:// URI or CID to a gateway HTTP URL for presentation
+ * Defaults to dweb.link/ipfs/<CID>
  * @param {string} ipfsUri ipfs://<CID> or raw CID or HTTP URL
- * @param {string} [customGateway] Optional gateway URL base
+ * @param {string} [customGateway] Optional gateway URL base (defaults to https://dweb.link)
  * @returns {string} HTTP URL for rendering
  */
-export function resolveIpfsUrl(ipfsUri, customGateway = DEFAULT_ORIGINLESS_INSTANCE) {
+export function resolveIpfsUrl(ipfsUri, customGateway = DEFAULT_IPFS_RESOLVE_GATEWAY) {
   if (!ipfsUri) return ''
-
-  // Clean gateway base
-  const gateway = (customGateway || DEFAULT_ORIGINLESS_INSTANCE).replace(/\/+$/, '')
 
   // If already an HTTP/HTTPS URL
   if (ipfsUri.startsWith('http://') || ipfsUri.startsWith('https://')) {
@@ -31,6 +30,9 @@ export function resolveIpfsUrl(ipfsUri, customGateway = DEFAULT_ORIGINLESS_INSTA
 
   // Strip leading slashes if any
   cid = cid.replace(/^\/+/, '')
+
+  // Clean gateway base
+  const gateway = (customGateway || DEFAULT_IPFS_RESOLVE_GATEWAY).replace(/\/+$/, '')
 
   return `${gateway}/ipfs/${cid}`
 }
@@ -72,7 +74,7 @@ export async function uploadToOriginless(file, options = {}) {
   return {
     cid: data.cid,
     ipfsUri: `ipfs://${data.cid}`,
-    gatewayUrl: `${instanceUrl}/ipfs/${data.cid}`,
+    gatewayUrl: resolveIpfsUrl(data.cid),
     size: data.size || file.size || 0,
     filename: data.filename || filename,
   }

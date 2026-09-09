@@ -107,7 +107,7 @@ function resetOriginless() {
 
         <hr class="divider" />
 
-        <!-- Originless IPFS Node -->
+        <!-- Originless IPFS Node & Resolver -->
         <div class="form-group">
           <label class="form-label">Originless IPFS Node (Media Storage)</label>
           <div class="input-with-action">
@@ -123,6 +123,19 @@ function resetOriginless() {
           </div>
           <p class="form-hint">
             Free public IPFS swarm instance for uploading posters, backdrops, and avatars without API keys.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">IPFS Presentation Resolver</label>
+          <input
+            type="text"
+            class="input"
+            value="https://dweb.link/ipfs/CID"
+            disabled
+          />
+          <p class="form-hint">
+            Media assets stored on IPFS are resolved at presentation time via <code>https://dweb.link/ipfs/CID</code>.
           </p>
         </div>
 

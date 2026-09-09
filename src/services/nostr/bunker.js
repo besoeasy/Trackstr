@@ -2,16 +2,19 @@
  * Nostr Remote Signing (NIP-46 Bunker) Service
  * Supports bunker:// URIs and NIP-05 addresses (e.g. user@nsec.app, Amber, Keystr)
  */
-import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46'
-import { generateSecretKey } from 'nostr-tools'
+import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46'
+import { generateSecretKey, getPublicKey } from 'nostr-tools'
+import QRCode from 'qrcode'
 import { logger } from '@/utils/logger.js'
 
-// Default fallback relays if none specified in bunker pointer
-const DEFAULT_BUNKER_RELAYS = [
-  'wss://relay.nsec.app',
-  'wss://relay.damus.io',
+// Popular, reliable relays for NIP-46 Bunker connections and QR codes
+export const POPULAR_BUNKER_RELAYS = [
   'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://relay.damus.io',
 ]
+
+const DEFAULT_BUNKER_RELAYS = POPULAR_BUNKER_RELAYS
 
 /**
  * Converts Uint8Array to hex string
@@ -146,6 +149,146 @@ class BunkerService {
         logger.warn('BunkerService', 'Could not open auth popup:', err)
       }
     }
+  }
+
+  /**
+   * Generates a nostrconnect:// URI and QR code for NIP-46 client-initiated connection
+   * @param {Object} [options]
+   * @param {string[]} [options.relays] Popular relays to receive the connection on
+   * @param {string} [options.name] Client display name
+   * @returns {Promise<{ uri: string, qrDataUrl: string, secret: string, relays: string[], clientPubkey: string }>}
+   */
+  async generateNostrConnectSession(options = {}) {
+    const relays =
+      options.relays && options.relays.length > 0
+        ? options.relays
+        : ['wss://nos.lol', 'wss://relay.primal.net']
+
+    const clientSecretKey = getOrCreateClientSecretKey()
+    const clientPubkey = getPublicKey(clientSecretKey)
+    const secret = bytesToHex(generateSecretKey()).slice(0, 16)
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://trackstr.app'
+
+    const uri = createNostrConnectURI({
+      clientPubkey,
+      relays,
+      secret,
+      name: options.name || 'Trackstr',
+      url: origin,
+      image: `${origin}/favicon.ico`,
+      perms: [
+        'sign_event:35400',
+        'sign_event:35402',
+        'sign_event:35403',
+        'sign_event:5401',
+        'sign_event:5402',
+        'sign_event:5',
+        'nip04_encrypt',
+        'nip04_decrypt',
+        'nip44_encrypt',
+        'nip44_decrypt',
+      ],
+    })
+
+    const qrDataUrl = await QRCode.toDataURL(uri, {
+      margin: 2,
+      width: 320,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+    })
+
+    return {
+      uri,
+      qrDataUrl,
+      secret,
+      relays,
+      clientPubkey,
+    }
+  }
+
+  /**
+   * Listens on specified relays for a remote signer to connect via nostrconnect:// URI
+   * @param {string} uri nostrconnect:// URI
+   * @param {Object} [options]
+   * @param {AbortSignal} [options.abortSignal] Signal to cancel subscription
+   * @param {SimplePool} [options.pool]
+   * @param {Function} [options.onStatus]
+   * @param {Function} [options.onAuthUrl]
+   * @returns {Promise<{ pubkey: string, pointer: Object, signer: BunkerSigner }>}
+   */
+  async listenForNostrConnect(uri, options = {}) {
+    const clientSecretKey = getOrCreateClientSecretKey()
+    logger.info('BunkerService', `Listening for Nostr Connect from URI: ${uri}`)
+    options.onStatus?.('Listening for signer scan on relay...')
+
+    // Clean up any existing active signer
+    if (this.signer) {
+      try {
+        await this.signer.close()
+      } catch {}
+      this.signer = null
+    }
+
+    const abortSignal = options.abortSignal || null
+    let signer
+    try {
+      signer = await BunkerSigner.fromURI(
+        clientSecretKey,
+        uri,
+        {
+          pool: options.pool,
+          onauth: (authUrl) => this.handleAuthUrl(authUrl, options.onAuthUrl),
+        },
+        abortSignal || 300000
+      )
+    } catch (subErr) {
+      logger.warn('BunkerService', 'Bunker fromURI aborted or ended:', subErr?.message || subErr)
+      throw subErr
+    }
+
+    options.onStatus?.('Signer connected! Retrieving public key...')
+    logger.info('BunkerService', 'Remote signer connected to relay subscription! Retrieving public key...')
+
+    let userPubkey = null
+    try {
+      userPubkey = await signer.getPublicKey()
+    } catch (pkErr) {
+      logger.warn('BunkerService', 'signer.getPublicKey() error, attempting connect handshake first:', pkErr)
+      try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : 'https://trackstr.app'
+        await signer.connect({ name: 'Trackstr', url: origin })
+        userPubkey = await signer.getPublicKey()
+      } catch (err2) {
+        if (signer.bp && signer.bp.pubkey) {
+          userPubkey = signer.bp.pubkey
+        } else {
+          throw pkErr
+        }
+      }
+    }
+
+    if (!userPubkey || typeof userPubkey !== 'string') {
+      throw new Error('Could not determine remote public key from signer.')
+    }
+
+    this.signer = signer
+    this.bunkerPointer = signer.bp
+    this.activePubkey = userPubkey
+
+    // Persist credentials
+    try {
+      localStorage.setItem('trackstr_auth_type', 'bunker')
+      localStorage.setItem('trackstr_bunker_pointer', JSON.stringify(signer.bp))
+      localStorage.setItem('trackstr_pubkey', userPubkey)
+    } catch (storageErr) {
+      logger.warn('BunkerService', 'Could not save bunker credentials to localStorage:', storageErr)
+    }
+
+    logger.info('BunkerService', `Successfully authenticated via Nostr Connect QR! Pubkey: ${userPubkey}`)
+    return { pubkey: userPubkey, pointer: signer.bp, signer }
   }
 
   /**
