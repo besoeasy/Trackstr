@@ -367,36 +367,6 @@ watch(
         </div>
       </section>
 
-      <!-- Architecture Bento Grid -->
-      <section class="arch-section">
-        <div class="arch-grid">
-          <div class="arch-card card">
-            <div class="arch-badge-row">
-              <span class="badge badge-primary">NIP-33</span>
-              <span class="arch-tag">Kind 35400 / 35402</span>
-            </div>
-            <h3 class="arch-title">Mutable State</h3>
-            <p class="arch-desc">Parameterized replaceable events overwrite older states per item. Zero relay bloat, no renewal jobs required.</p>
-          </div>
-          <div class="arch-card card">
-            <div class="arch-badge-row">
-              <span class="badge badge-primary">Logs</span>
-              <span class="arch-tag">Kind 5401 / 5402</span>
-            </div>
-            <h3 class="arch-title">Permanent History</h3>
-            <p class="arch-desc">Historical diary entries for reviews and scrobbles live forever on relays without artificial expiration tags.</p>
-          </div>
-          <div class="arch-card card">
-            <div class="arch-badge-row">
-              <span class="badge badge-primary">IPFS</span>
-              <span class="arch-tag">Originless Node</span>
-            </div>
-            <h3 class="arch-title">Content Addressing</h3>
-            <p class="arch-desc">Decentralized posters and banners addressed by IPFS CIDs via public Originless instance at originless.gupt.app.</p>
-          </div>
-        </div>
-      </section>
-
       <!-- Recent Nostr Activity Feed -->
       <section class="section">
         <div class="section-header">
@@ -698,65 +668,6 @@ watch(
   to {
     transform: rotate(360deg);
   }
-}
-
-/* Architecture Bento Grid */
-.arch-section {
-  margin: 48px 0 64px;
-}
-
-.arch-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-
-@media (max-width: 840px) {
-  .arch-grid {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-}
-
-.arch-card {
-  display: flex;
-  flex-direction: column;
-  padding: 24px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  transition: border-color var(--transition-fast);
-}
-
-.arch-card:hover {
-  border-color: var(--border-hover);
-}
-
-.arch-badge-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.arch-tag {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-
-.arch-title {
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin-bottom: 8px;
-  color: var(--text-main);
-}
-
-.arch-desc {
-  font-size: 0.88rem;
-  color: var(--text-secondary);
-  line-height: 1.55;
 }
 
 .empty-feed {
