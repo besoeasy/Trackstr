@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
+import { bunkerService } from '@/services/nostr/bunker.js'
 import { getLogs, clearLogs, subscribeLogs, logger } from '@/utils/logger.js'
 
 const emit = defineEmits(['close'])
@@ -80,6 +81,36 @@ async function testExtension() {
   }
 }
 
+async function testBunker() {
+  isTesting.value = true
+  testResult.value = null
+  logger.info('Diagnostics', 'Running Bunker connection test...')
+
+  try {
+    diagnostics.value = nostrClient.getDiagnostics()
+    if (!bunkerService.isConnected()) {
+      throw new Error('No active Bunker session connected. Log in via Bunker (NIP-46) first.')
+    }
+
+    logger.info('Diagnostics', 'Calling bunker.getPublicKey()...')
+    const pk = await bunkerService.getPublicKey()
+    testResult.value = {
+      success: true,
+      message: `Success! Bunker responded with public key: ${pk}`,
+    }
+    logger.info('Diagnostics', `Bunker test passed! Pubkey: ${pk}`)
+  } catch (err) {
+    const msg = err?.message || String(err)
+    testResult.value = {
+      success: false,
+      message: msg,
+    }
+    logger.error('Diagnostics', `Bunker test failed: ${msg}`, err)
+  } finally {
+    isTesting.value = false
+  }
+}
+
 function handleCopyLogs() {
   const text = logs.value
     .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.tag}] ${l.message} ${l.data ? JSON.stringify(l.data) : ''}`)
@@ -139,6 +170,21 @@ function handleClearLogs() {
               <span class="diag-label">Active Relays:</span>
               <span class="mono-val">{{ diagnostics.activeRelays?.length || 0 }} configured</span>
             </div>
+
+            <div class="diag-item">
+              <span class="diag-label">NIP-46 Bunker:</span>
+              <span
+                class="badge"
+                :class="diagnostics.bunkerConnected ? 'badge-success' : 'badge-neutral'"
+              >
+                {{ diagnostics.bunkerConnected ? 'Connected' : 'Not Active' }}
+              </span>
+            </div>
+
+            <div class="diag-item">
+              <span class="diag-label">Active Auth Method:</span>
+              <span class="mono-val">{{ authStore.authType || 'None' }}</span>
+            </div>
           </div>
 
           <div class="diag-actions">
@@ -149,6 +195,16 @@ function handleClearLogs() {
               @click="testExtension"
             >
               {{ isTesting ? 'Testing Extension...' : '🧪 Test Extension Call' }}
+            </button>
+
+            <button
+              v-if="diagnostics.bunkerConnected"
+              class="btn btn-outline btn-sm"
+              type="button"
+              :disabled="isTesting"
+              @click="testBunker"
+            >
+              {{ isTesting ? 'Testing Bunker...' : '⚡ Test Bunker Call' }}
             </button>
           </div>
 

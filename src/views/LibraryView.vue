@@ -116,10 +116,10 @@ function navigateToItem(contentId, media) {
 
     <!-- Login prompt if not authenticated -->
     <div v-if="!authStore.isAuthenticated" class="auth-banner card">
-      <h2>Connect your Nostr Extension</h2>
-      <p>Connect your browser extension to view and manage your library across relays.</p>
-      <button class="btn btn-primary" type="button" @click="authStore.loginWithExtension">
-        ⚡ Connect Extension
+      <h2>Connect your Nostr Account</h2>
+      <p>Connect your browser extension or Bunker remote signer to view and manage your library across relays.</p>
+      <button class="btn btn-primary" type="button" @click="authStore.openLoginModal">
+        ⚡ Connect Nostr
       </button>
     </div>
 

@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/settings.js'
 import SettingsModal from './SettingsModal.vue'
 import DebugModal from './DebugModal.vue'
 import AddMediaModal from './AddMediaModal.vue'
+import LoginModal from './LoginModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -16,13 +17,8 @@ const showDebug = ref(false)
 const showAddMedia = ref(false)
 const showUserMenu = ref(false)
 
-async function handleLogin() {
-  try {
-    await authStore.loginWithExtension()
-  } catch (err) {
-    // Open debug diagnostics modal automatically on failure so the user sees exactly what went wrong
-    showDebug.value = true
-  }
+function handleLogin() {
+  authStore.openLoginModal()
 }
 
 function handleLogout() {
@@ -91,7 +87,7 @@ function handleLogout() {
           <span>Track</span>
         </button>
 
-        <!-- Extension Auth -->
+        <!-- Nostr Auth (Extension or Bunker) -->
         <template v-if="!authStore.isAuthenticated">
           <button
             class="btn btn-primary"
@@ -121,10 +117,17 @@ function handleLogout() {
                 {{ authStore.displayName.slice(0, 1).toUpperCase() }}
               </div>
               <span class="user-name">{{ authStore.displayName }}</span>
+              <span class="auth-pill-badge" :title="authStore.authType === 'bunker' ? 'Bunker Remote Signer' : 'Extension Signer'">
+                {{ authStore.authType === 'bunker' ? '⚡' : '🧩' }}
+              </span>
             </button>
 
             <div v-if="showUserMenu" class="user-dropdown">
               <div class="dropdown-header">
+                <div class="dropdown-auth-badge">
+                  <span v-if="authStore.authType === 'bunker'" class="badge badge-bunker">⚡ Bunker (NIP-46)</span>
+                  <span v-else class="badge badge-extension">🧩 Extension (NIP-07)</span>
+                </div>
                 <span class="dropdown-npub">{{ authStore.npub }}</span>
               </div>
               <router-link to="/library" class="dropdown-item" @click="showUserMenu = false">
@@ -140,6 +143,11 @@ function handleLogout() {
     </div>
   </header>
 
+  <LoginModal
+    v-if="authStore.showLoginModal"
+    @close="authStore.closeLoginModal"
+    @open-debug="showDebug = true"
+  />
   <SettingsModal v-if="showSettings" @close="showSettings = false" />
   <DebugModal v-if="showDebug" @close="showDebug = false" />
   <AddMediaModal v-if="showAddMedia" @close="showAddMedia = false" />
@@ -213,6 +221,39 @@ function handleLogout() {
   padding: 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
+}
+
+.dropdown-auth-badge {
+  margin-bottom: 6px;
+}
+
+.badge-bunker {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.badge-extension {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.auth-pill-badge {
+  font-size: 0.75rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
 }
 
 .dropdown-npub {

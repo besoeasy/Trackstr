@@ -21,6 +21,7 @@ function onExtensionAction(e) {
       title: e.detail.title || 'Extension Action Required',
       message: e.detail.message || 'Please check your browser extension to continue.',
       kind: e.detail.kind || null,
+      authUrl: e.detail.authUrl || null,
     }
   }
 }
@@ -66,6 +67,15 @@ onUnmounted(() => {
             <span v-if="actionInfo.kind" class="kind-tag">Kind {{ actionInfo.kind }}</span>
           </div>
           <div class="signing-desc">{{ actionInfo.message }}</div>
+          <a
+            v-if="actionInfo.authUrl"
+            :href="actionInfo.authUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="banner-auth-link"
+          >
+            Open Authorization ↗
+          </a>
         </div>
         <button
           class="btn-banner-dismiss"
@@ -151,6 +161,23 @@ onUnmounted(() => {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.8rem;
+}
+
+.banner-auth-link {
+  display: inline-block;
+  margin-top: 6px;
+  background: var(--primary);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+
+.banner-auth-link:hover {
+  opacity: 0.9;
 }
 
 .slide-enter-active,

@@ -7,6 +7,7 @@ import { SimplePool } from 'nostr-tools/pool'
 import { nip19 } from 'nostr-tools'
 import { getRelays } from './relays.js'
 import { logger } from '@/utils/logger.js'
+import { bunkerService } from './bunker.js'
 
 class NostrClient {
   constructor() {
@@ -56,7 +57,17 @@ class NostrClient {
       documentReady: document.readyState,
       activeRelays: this.getRelays(),
       location: window.location.href,
+      bunkerConnected: bunkerService.isConnected(),
+      bunkerPointer: bunkerService.getBunkerPointer(),
     }
+  }
+
+  /**
+   * Checks whether any signing method (Bunker or NIP-07 extension) is active
+   * @returns {boolean}
+   */
+  hasSigner() {
+    return bunkerService.isConnected() || this.hasExtension()
   }
 
   /**
@@ -217,13 +228,29 @@ class NostrClient {
   }
 
   /**
-   * Signs an event using NIP-07 extension
+   * Retrieves user's public key from either active Bunker or browser extension
+   * @returns {Promise<string>}
+   */
+  async getPublicKey() {
+    if (bunkerService.isConnected()) {
+      return await bunkerService.getPublicKey()
+    }
+    return await this.getPublicKeyFromExtension()
+  }
+
+  /**
+   * Signs an event using NIP-07 extension or NIP-46 Bunker
    * @param {Object} eventTemplate Unsigned event
    * @returns {Promise<Object>} Signed event with id, pubkey, sig
    */
   async signEvent(eventTemplate) {
+    // If Bunker signer is active, delegate directly to BunkerService
+    if (bunkerService.isConnected()) {
+      return await bunkerService.signEvent(eventTemplate)
+    }
+
     if (!this.hasExtension() || typeof window.nostr.signEvent !== 'function') {
-      const msg = 'No Nostr browser extension available with signEvent function.'
+      const msg = 'No Nostr browser extension or Bunker signer available for signing.'
       logger.error('NostrClient', msg)
       throw new Error(msg)
     }

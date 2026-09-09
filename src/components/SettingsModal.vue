@@ -42,18 +42,24 @@ function resetOriginless() {
       </div>
 
       <div class="modal-body">
-        <!-- Nostr Extension Status -->
+        <!-- Nostr Signer Status -->
         <div class="form-group">
-          <label class="form-label">Nostr Browser Extension (NIP-07)</label>
+          <label class="form-label">Nostr Signer Status (NIP-07 / NIP-46 Bunker)</label>
           <div class="status-box">
-            <span v-if="hasExtension" class="badge badge-success">Extension Detected</span>
-            <span v-else class="badge badge-danger">No Extension Found</span>
-            <p v-if="!hasExtension" class="form-hint">
-              Install a Nostr extension like Alby, nos2x, or Amber to sign events.
-            </p>
-            <p v-else-if="authStore.isAuthenticated" class="form-hint">
-              Logged in as: <span class="contentid-chip">{{ authStore.npub }}</span>
-            </p>
+            <template v-if="authStore.isAuthenticated">
+              <span v-if="authStore.authType === 'bunker'" class="badge badge-success">⚡ Bunker Connected</span>
+              <span v-else class="badge badge-success">🧩 Extension Connected</span>
+              <p class="form-hint">
+                Logged in as: <span class="contentid-chip">{{ authStore.npub }}</span>
+              </p>
+            </template>
+            <template v-else>
+              <span v-if="hasExtension" class="badge badge-success">Extension Detected</span>
+              <span v-else class="badge badge-neutral">No Extension (Bunker available)</span>
+              <p class="form-hint">
+                Connect via browser extension (Alby, nos2x) or remote Bunker (nsec.app, Amber).
+              </p>
+            </template>
           </div>
         </div>
 
