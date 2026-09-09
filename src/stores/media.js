@@ -23,8 +23,9 @@ export const useMediaStore = defineStore('media', () => {
   const ratings = ref({}) // key: dTag -> { rating, eventId, createdAt, media }
   const reviews = ref([]) // Array of kind 5401 events
   const activityLogs = ref([]) // Array of kind 5402 events
-  const communityMetadata = ref({}) // key: contentId -> { poster, banner, genres, overview, author, createdAt }
+  const communityMetadata = ref({}) // key: contentId -> { poster, banner, genres, overview, lang, author, createdAt }
   const mediaLibrary = ref({}) // key: contentId -> base media object
+  const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
   // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
   // Nostr-only surfaces must filter by this set. key: contentId -> 1
@@ -47,6 +48,7 @@ export const useMediaStore = defineStore('media', () => {
         activityLogs.value = data.activityLogs || []
         communityMetadata.value = data.communityMetadata || {}
         mediaLibrary.value = data.mediaLibrary || {}
+        follows.value = data.follows || {}
         lastSyncedAt.value = data.lastSyncedAt || 0
         nostrContentIds.value = data.nostrContentIds || {}
         // Heal provenance for caches written before provenance tracking:
@@ -77,10 +79,11 @@ export const useMediaStore = defineStore('media', () => {
       const data = {
         statuses: statuses.value,
         ratings: ratings.value,
-        reviews: reviews.value.slice(0, 100),
-        activityLogs: activityLogs.value.slice(0, 100),
+        reviews: reviews.value.slice(0, 500),
+        activityLogs: activityLogs.value.slice(0, 500),
         communityMetadata: communityMetadata.value,
         mediaLibrary: mediaLibrary.value,
+        follows: follows.value,
         lastSyncedAt: lastSyncedAt.value,
         nostrContentIds: nostrContentIds.value,
       }
@@ -91,16 +94,23 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Parses media attributes from event tags
+   * Parses media attributes from event tags. Never defaults the type and
+   * never mistakes an episode-suffixed d-tag for a contentid.
    */
   function parseMediaTags(tags) {
-    const getTag = (name) => tags.find((t) => t[0] === name)?.[1]
-    const contentId = getTag('contentid') || getTag('d')
-    const type = getTag('type') || 'movie'
-    const name = getTag('name') || ''
+    const safeTags = Array.isArray(tags) ? tags : []
+    const getTag = (name) => safeTags.find((t) => t[0] === name)?.[1]
+    const rawCid = getTag('contentid') || ''
+    const dRaw = getTag('d') || ''
+    const base = (/^[0-9a-f]{64}$/i.test(rawCid) ? rawCid : dRaw.split(':')[0]) || ''
+    const contentId = /^[0-9a-f]{64}$/i.test(base) ? base.toLowerCase() : ''
+    const type = getTag('type') || ''
+    const name = getTag('name') || getTag('title') || ''
     const year = getTag('year') || ''
     const season = getTag('season')
     const episode = getTag('episode')
+    const artist = getTag('artist') || ''
+    const qualifier = getTag('qualifier') || ''
 
     return {
       contentId,
@@ -109,15 +119,32 @@ export const useMediaStore = defineStore('media', () => {
       year,
       season,
       episode,
+      artist,
+      qualifier,
     }
+  }
+
+  /**
+   * Web-of-Trust preference tier for community metadata: own > followed > other.
+   */
+  function authorTier(pubkey) {
+    if (pubkey && authStore.pubkey && pubkey === authStore.pubkey) return 3
+    if (pubkey && follows.value[pubkey]) return 2
+    return 1
   }
 
   /**
    * Ingests a raw Nostr event into our state
    */
   function ingestEvent(evt) {
+    if (!evt || !Array.isArray(evt.tags)) return
     const media = parseMediaTags(evt.tags)
+    // Drop malformed events instead of polluting state with undefined fields.
+    if (!media.contentId) return
     const dTag = evt.tags.find((t) => t[0] === 'd')?.[1] || media.contentId
+    // Mutable state is scoped per (author, d-tag): strangers' events never
+    // overwrite the viewer's own status/rating.
+    const authorKey = `${evt.pubkey || 'unknown'}:${dTag}`
 
     if (media.contentId && !mediaLibrary.value[media.contentId]) {
       mediaLibrary.value[media.contentId] = media
@@ -131,11 +158,13 @@ export const useMediaStore = defineStore('media', () => {
     if (evt.kind === KINDS.STATUS) {
       const statusTag = evt.tags.find((t) => t[0] === 'status')?.[1]
       const progressTag = evt.tags.find((t) => t[0] === 'progress')?.[1]
-      const current = statuses.value[dTag]
+      if (!statusTag) return // malformed: nothing to store
+      const current = statuses.value[authorKey]
 
-      // Mutable state: overwrite if newer
-      if (!current || evt.created_at >= current.createdAt) {
-        statuses.value[dTag] = {
+      // Mutable state: newer wins; equal timestamps tie-break on event id
+      // so every client converges on the same winner.
+      if (!current || evt.created_at > current.createdAt || (evt.created_at === current.createdAt && (evt.id || '') < (current.eventId || ''))) {
+        statuses.value[authorKey] = {
           dTag,
           contentId: media.contentId,
           status: statusTag,
@@ -148,14 +177,15 @@ export const useMediaStore = defineStore('media', () => {
       }
     } else if (evt.kind === KINDS.RATING) {
       const ratingTag = evt.tags.find((t) => t[0] === 'rating')?.[1]
-      const current = ratings.value[dTag]
+      const ratingNum = ratingTag !== undefined && ratingTag !== null && ratingTag !== '' ? Number(ratingTag) : null
+      const current = ratings.value[authorKey]
 
-      // Mutable state: overwrite if newer
-      if (!current || evt.created_at >= current.createdAt) {
-        ratings.value[dTag] = {
+      // Mutable state: newer wins; equal timestamps tie-break on event id.
+      if (!current || evt.created_at > current.createdAt || (evt.created_at === current.createdAt && (evt.id || '') < (current.eventId || ''))) {
+        ratings.value[authorKey] = {
           dTag,
           contentId: media.contentId,
-          rating: ratingTag ? Number(ratingTag) : 0,
+          rating: Number.isFinite(ratingNum) ? ratingNum : null,
           eventId: evt.id,
           createdAt: evt.created_at,
           pubkey: evt.pubkey,
@@ -166,15 +196,26 @@ export const useMediaStore = defineStore('media', () => {
       const posterTag = evt.tags.find((t) => t[0] === 'poster')?.[1]
       const bannerTag = evt.tags.find((t) => t[0] === 'banner')?.[1]
       const genres = evt.tags.filter((t) => t[0] === 'genre').map((t) => t[1])
+      const langTag = evt.tags.find((t) => t[0] === 'lang')?.[1] || 'en'
       const current = communityMetadata.value[media.contentId]
+      const tier = authorTier(evt.pubkey)
+      const currentTier = current ? authorTier(current.author) : -1
+      const sameTierNewer =
+        current &&
+        tier === currentTier &&
+        (evt.created_at > current.createdAt ||
+          (evt.created_at === current.createdAt && (evt.id || '') < (current.eventId || '')))
 
-      if (!current || evt.created_at >= current.createdAt) {
+      // Web-of-Trust preference (own > followed > other); within a tier the
+      // newest wins. Sparse newer events merge over — never wipe — richer ones.
+      if (!current || tier > currentTier || sameTierNewer) {
         communityMetadata.value[media.contentId] = {
           contentId: media.contentId,
-          poster: posterTag || '',
-          banner: bannerTag || '',
-          genres,
-          overview: evt.content || '',
+          poster: posterTag || current?.poster || '',
+          banner: bannerTag || current?.banner || '',
+          genres: genres.length ? genres : current?.genres || [],
+          overview: evt.content || current?.overview || '',
+          lang: langTag,
           author: evt.pubkey,
           createdAt: evt.created_at,
           eventId: evt.id,
@@ -188,9 +229,10 @@ export const useMediaStore = defineStore('media', () => {
 
         reviews.value.unshift({
           id: evt.id,
+          eventId: evt.id,
           contentId: media.contentId,
           content: evt.content,
-          rating: ratingTag ? Number(ratingTag) : null,
+          rating: ratingTag !== undefined && ratingTag !== null && ratingTag !== '' && Number.isFinite(Number(ratingTag)) ? Number(ratingTag) : null,
           spoiler: spoilerTag === '1',
           createdAt: evt.created_at,
           pubkey: evt.pubkey,
@@ -205,6 +247,7 @@ export const useMediaStore = defineStore('media', () => {
 
         activityLogs.value.unshift({
           id: evt.id,
+          eventId: evt.id,
           contentId: media.contentId,
           status: statusTag,
           progress: progressTag || '',
@@ -214,6 +257,40 @@ export const useMediaStore = defineStore('media', () => {
           media,
         })
       }
+    }
+  }
+
+  /**
+   * Fetches the viewer's NIP-02 follow list for metadata preference.
+   */
+  async function fetchFollows(pubkey) {
+    const userPubkey = pubkey || authStore.pubkey
+    if (!userPubkey) return {}
+    try {
+      const events = await nostrClient.queryEvents(
+        {
+          authors: [userPubkey],
+          kinds: [KINDS.CONTACTS],
+          limit: 1,
+        },
+        undefined,
+        4000
+      )
+      if (!events.length) return { ...follows.value }
+      events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+      const latest = events[0]
+      const next = {}
+      ;(Array.isArray(latest.tags) ? latest.tags : [])
+        .filter((t) => t[0] === 'p' && /^[0-9a-f]{64}$/i.test(t[1] || ''))
+        .forEach((t) => {
+          next[t[1].toLowerCase()] = 1
+        })
+      follows.value = next
+      saveToLocalStorage()
+      return next
+    } catch (err) {
+      console.warn('Failed to fetch follow list:', err)
+      return { ...follows.value }
     }
   }
 
@@ -228,7 +305,8 @@ export const useMediaStore = defineStore('media', () => {
     try {
       const filter = {
         authors: [userPubkey],
-        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+        limit: 500,
       }
 
       // Delta sync if we already synced recently
@@ -239,8 +317,15 @@ export const useMediaStore = defineStore('media', () => {
       const events = await nostrClient.queryEvents(filter)
       events.forEach((evt) => ingestEvent(evt))
 
-      // Update sync time
-      lastSyncedAt.value = Math.floor(Date.now() / 1000)
+      // Advance the cursor only to what was actually observed — never to
+      // wall-clock now — so slow-relay events can't fall into a sync gap.
+      const maxSeen = events.reduce((m, e) => Math.max(m, e.created_at || 0), 0)
+      if (maxSeen > lastSyncedAt.value) {
+        lastSyncedAt.value = maxSeen
+      }
+      try {
+        await fetchFollows(userPubkey)
+      } catch {}
       saveToLocalStorage()
     } catch (err) {
       console.error('Failed to sync user data from relays:', err)
@@ -256,11 +341,14 @@ export const useMediaStore = defineStore('media', () => {
     if (!contentId) return
 
     try {
-      const events = await nostrClient.queryEvents({
-        '#d': [contentId],
-        kinds: [KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.STATUS, KINDS.RATING],
-        limit: 50,
-      })
+      // Match both the NIP-33 d-tag (#d) and the base contentid tag
+      // (#contentid): episode mutables carry suffixed d-tags, so a bare-#d
+      // query alone would miss all episode activity for a show.
+      const kinds = [KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.STATUS, KINDS.RATING]
+      const events = await nostrClient.queryEvents([
+        { '#d': [contentId], kinds, limit: 50 },
+        { '#contentid': [contentId], kinds, limit: 50 },
+      ])
 
       events.forEach((evt) => ingestEvent(evt))
       saveToLocalStorage()
@@ -318,38 +406,41 @@ export const useMediaStore = defineStore('media', () => {
       events.forEach((evt) => ingestEvent(evt))
       saveToLocalStorage()
 
-      // Aggregate all known media items and calculate popularity based on event mentions
+      // Aggregate mentions: every relay event counts exactly once, grouped
+      // by base contentId (episode suffixes fold into their show). Local
+      // entries whose events weren't in this relay response add one mention
+      // each — never double-counted.
       const mentionCounts = new Map()
       const latestTimes = new Map()
+      const seenEventIds = new Set()
+
+      const countMention = (cId, at) => {
+        if (!cId) return
+        const baseContentId = String(cId).split(':')[0]
+        if (!/^[0-9a-f]{64}$/i.test(baseContentId)) return
+        mentionCounts.set(baseContentId, (mentionCounts.get(baseContentId) || 0) + 1)
+        if (!latestTimes.has(baseContentId) || at > latestTimes.get(baseContentId)) {
+          latestTimes.set(baseContentId, at)
+        }
+      }
 
       events.forEach((evt) => {
-        const getTag = (name) => evt.tags.find((t) => t[0] === name)?.[1]
-        const cId = getTag('contentid') || getTag('d')
-        if (cId) {
-          const baseContentId = cId.split(':')[0]
-          mentionCounts.set(baseContentId, (mentionCounts.get(baseContentId) || 0) + 1)
-          if (!latestTimes.has(baseContentId) || evt.created_at > latestTimes.get(baseContentId)) {
-            latestTimes.set(baseContentId, evt.created_at)
-          }
-        }
+        if (!evt || seenEventIds.has(evt.id)) return
+        seenEventIds.add(evt.id)
+        const getTag = (name) => (Array.isArray(evt.tags) ? evt.tags.find((t) => t[0] === name)?.[1] : undefined)
+        countMention(getTag('contentid') || getTag('d'), evt.created_at || 0)
       })
 
-      // Also count from local stored statuses, ratings, reviews, logs
-      Object.values(statuses.value).forEach((s) => {
-        if (s.contentId) {
-          mentionCounts.set(s.contentId, (mentionCounts.get(s.contentId) || 0) + 2)
-        }
-      })
-      reviews.value.forEach((r) => {
-        if (r.contentId) {
-          mentionCounts.set(r.contentId, (mentionCounts.get(r.contentId) || 0) + 2)
-        }
-      })
-      activityLogs.value.forEach((a) => {
-        if (a.contentId) {
-          mentionCounts.set(a.contentId, (mentionCounts.get(a.contentId) || 0) + 1)
-        }
-      })
+      // Fold in local-only state (including ratings, previously uncounted)
+      const foldLocal = (eventId, cId, at) => {
+        if (!eventId || seenEventIds.has(eventId)) return
+        seenEventIds.add(eventId)
+        countMention(cId, at || 0)
+      }
+      Object.values(statuses.value).forEach((s) => foldLocal(s.eventId, s.contentId, s.createdAt))
+      Object.values(ratings.value).forEach((r) => foldLocal(r.eventId, r.contentId, r.createdAt))
+      reviews.value.forEach((r) => foldLocal(r.eventId || r.id, r.contentId, r.createdAt))
+      activityLogs.value.forEach((a) => foldLocal(a.eventId || a.id, a.contentId, a.createdAt))
 
       // Get all known media items from state
       const allKnown = getKnownMediaFromEvents(type)
@@ -383,6 +474,19 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Publishes a signed event and throws unless at least one relay accepted
+   * it. Callers ingest into local state only after this resolves, so the UI
+   * never presents a failed broadcast as saved.
+   */
+  async function publishOrThrow(signedEvent) {
+    const { publishedTo } = await nostrClient.publish(signedEvent)
+    if (!publishedTo.length) {
+      throw new Error('Publish failed on every configured relay — check your relay list in Settings and retry.')
+    }
+    return publishedTo
+  }
+
+  /**
    * Sets media watch/listening status (Kind 35402) and creates an immutable check-in log (Kind 5402)
    */
   async function setStatus(media, status, progress = '', note = '') {
@@ -393,19 +497,15 @@ export const useMediaStore = defineStore('media', () => {
     // 1. Build Kind 35402 (Mutable State)
     const statusTemplate = buildStatusEvent(media, status, progress, note)
     const signedStatus = await nostrClient.signEvent(statusTemplate)
-    await nostrClient.publish(signedStatus)
+    await publishOrThrow(signedStatus)
     ingestEvent(signedStatus)
 
     // 2. Build Kind 5402 (Immutable Check-in Log) if it's an active status
     if (['watching', 'completed', 'listening'].includes(status)) {
-      try {
-        const logTemplate = buildActivityLogEvent(media, status, progress, note)
-        const signedLog = await nostrClient.signEvent(logTemplate)
-        await nostrClient.publish(signedLog)
-        ingestEvent(signedLog)
-      } catch (logErr) {
-        console.warn('Activity log event publication failed, but status was updated:', logErr)
-      }
+      const logTemplate = buildActivityLogEvent(media, status, progress, note)
+      const signedLog = await nostrClient.signEvent(logTemplate)
+      await publishOrThrow(signedLog)
+      ingestEvent(signedLog)
     }
 
     saveToLocalStorage()
@@ -422,7 +522,7 @@ export const useMediaStore = defineStore('media', () => {
 
     const ratingTemplate = buildRatingEvent(media, rating, note)
     const signedRating = await nostrClient.signEvent(ratingTemplate)
-    await nostrClient.publish(signedRating)
+    await publishOrThrow(signedRating)
     ingestEvent(signedRating)
 
     saveToLocalStorage()
@@ -439,7 +539,7 @@ export const useMediaStore = defineStore('media', () => {
 
     const reviewTemplate = buildReviewEvent(media, body, options)
     const signedReview = await nostrClient.signEvent(reviewTemplate)
-    await nostrClient.publish(signedReview)
+    await publishOrThrow(signedReview)
     ingestEvent(signedReview)
 
     saveToLocalStorage()
@@ -456,7 +556,7 @@ export const useMediaStore = defineStore('media', () => {
 
     const metadataTemplate = buildMediaMetadataEvent(media, metadata)
     const signed = await nostrClient.signEvent(metadataTemplate)
-    await nostrClient.publish(signed)
+    await publishOrThrow(signed)
     ingestEvent(signed)
 
     saveToLocalStorage()
@@ -464,44 +564,83 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Deletes a mutable or immutable event via NIP-09
+   * Deletes a mutable or immutable event via NIP-09. Local state is echoed
+   * kind-aware: NIP-33 identity is (kind, pubkey, d-tag), so a status delete
+   * never wipes the rating sharing its d-tag (and vice versa).
    */
   async function deleteTrackstrEvent({ eventId, coordinate, reason }) {
     if (!authStore.isAuthenticated) {
       throw new Error('Please connect your Nostr extension.')
     }
+    if ((eventId && coordinate) || (!eventId && !coordinate)) {
+      throw new Error('Deletion requires exactly one of eventId or coordinate.')
+    }
 
     const deleteTemplate = buildDeletionEvent({ eventId, coordinate, reason })
     const signed = await nostrClient.signEvent(deleteTemplate)
-    await nostrClient.publish(signed)
+    await publishOrThrow(signed)
 
     // Remove from local state
+    const ownPubkey = authStore.pubkey || ''
     if (coordinate) {
-      const parts = coordinate.split(':')
-      const dTag = parts[2]
-      if (dTag) {
-        delete statuses.value[dTag]
-        delete ratings.value[dTag]
+      // Coordinate shape "<kind>:<pubkey>:<d-tag>"; d-tag may itself
+      // contain colons (episode ":sNeM" suffix), so rejoin the tail.
+      const [, kindStr, , ...dParts] = String(coordinate).split(':')
+      const kind = Number(kindStr)
+      const dTag = dParts.join(':')
+      const base = dTag.split(':')[0]
+      if (kind === KINDS.RATING) {
+        delete ratings.value[`${ownPubkey}:${dTag}`]
+      } else if (kind === KINDS.STATUS) {
+        delete statuses.value[`${ownPubkey}:${dTag}`]
+      } else if (kind === KINDS.MEDIA_METADATA) {
+        delete communityMetadata.value[base]
       }
+      pruneProvenance(base)
     }
     if (eventId) {
+      const removedReview = reviews.value.find((r) => r.id === eventId)
+      const removedLog = activityLogs.value.find((a) => a.id === eventId)
       reviews.value = reviews.value.filter((r) => r.id !== eventId)
       activityLogs.value = activityLogs.value.filter((a) => a.id !== eventId)
+      if (removedReview?.contentId) pruneProvenance(removedReview.contentId)
+      if (removedLog?.contentId) pruneProvenance(removedLog.contentId)
     }
 
     saveToLocalStorage()
     return signed
   }
 
-  // Computed helper getters
-  function getMediaStatus(contentId, season, episode) {
-    const dTag = buildDTag({ contentId, season, episode })
-    return statuses.value[dTag] || null
+  /**
+   * Drops a base contentId from the Nostr-provenance set once no local
+   * event-derived state references it anymore.
+   */
+  function pruneProvenance(baseContentId) {
+    if (!baseContentId) return
+    const stillReferenced =
+      Object.values(statuses.value).some((s) => (s.contentId || '').split(':')[0] === baseContentId) ||
+      Object.values(ratings.value).some((r) => (r.contentId || '').split(':')[0] === baseContentId) ||
+      reviews.value.some((r) => r.contentId === baseContentId) ||
+      activityLogs.value.some((a) => a.contentId === baseContentId) ||
+      Boolean(communityMetadata.value[baseContentId])
+    if (!stillReferenced) {
+      delete nostrContentIds.value[baseContentId]
+    }
   }
 
-  function getMediaRating(contentId, season, episode) {
+  // Computed helper getters (mutable state is per-author; they default to
+  // the viewer's own entries so strangers' activity never leaks into "yours")
+  function mediaStateKey(contentId, season, episode, pubkey) {
     const dTag = buildDTag({ contentId, season, episode })
-    return ratings.value[dTag]?.rating || null
+    return `${pubkey || authStore.pubkey || 'unknown'}:${dTag}`
+  }
+
+  function getMediaStatus(contentId, season, episode, pubkey) {
+    return statuses.value[mediaStateKey(contentId, season, episode, pubkey)] || null
+  }
+
+  function getMediaRating(contentId, season, episode, pubkey) {
+    return ratings.value[mediaStateKey(contentId, season, episode, pubkey)]?.rating ?? null
   }
 
   function getMediaMetadata(contentId) {
@@ -518,9 +657,14 @@ export const useMediaStore = defineStore('media', () => {
 
   function cacheMediaItem(item) {
     if (item && item.contentId) {
+      // Never let empty provider fields clobber previously cached values.
+      const clean = {}
+      for (const [k, v] of Object.entries(item)) {
+        if (v !== undefined && v !== '' && v !== null) clean[k] = v
+      }
       mediaLibrary.value[item.contentId] = {
         ...mediaLibrary.value[item.contentId],
-        ...item,
+        ...clean,
       }
       saveToLocalStorage()
     }
@@ -533,26 +677,27 @@ export const useMediaStore = defineStore('media', () => {
    */
   function getKnownMediaFromEvents(type = null) {
     const items = new Map()
+    // Episode-anchored records aggregate under their parent show.
+    const typeMatches = (mType) => !type || mType === type || (type === 'show' && mType === 'episode')
 
     // 1. From mediaLibrary cache (Nostr-sourced entries only)
     Object.values(mediaLibrary.value).forEach((m) => {
       if (m && m.contentId && nostrContentIds.value[m.contentId]) {
-        if (!type || m.type === type) {
+        if (typeMatches(m.type)) {
           items.set(m.contentId, { ...m })
         }
       }
     })
 
-    // 2. From statuses (kind 35402)
+    // 2. From statuses (kind 35402, all authors — global activity)
     Object.values(statuses.value).forEach((s) => {
       if (s.media && s.contentId) {
-        if (!type || s.media.type === type) {
+        if (typeMatches(s.media.type)) {
           const existing = items.get(s.contentId) || {}
           items.set(s.contentId, {
             ...existing,
             ...s.media,
             contentId: s.contentId,
-            userStatus: s.status,
           })
         }
       }
@@ -561,7 +706,7 @@ export const useMediaStore = defineStore('media', () => {
     // 3. From reviews (kind 5401)
     reviews.value.forEach((r) => {
       if (r.media && r.contentId) {
-        if (!type || r.media.type === type) {
+        if (typeMatches(r.media.type)) {
           const existing = items.get(r.contentId) || {}
           items.set(r.contentId, { ...existing, ...r.media, contentId: r.contentId })
         }
@@ -571,21 +716,33 @@ export const useMediaStore = defineStore('media', () => {
     // 4. From activity logs (kind 5402)
     activityLogs.value.forEach((a) => {
       if (a.media && a.contentId) {
-        if (!type || a.media.type === type) {
+        if (typeMatches(a.media.type)) {
           const existing = items.get(a.contentId) || {}
           items.set(a.contentId, { ...existing, ...a.media, contentId: a.contentId })
         }
       }
     })
 
-    // 5. From community metadata (kind 35403)
+    // Annotate the viewer's OWN status only — never a stranger's.
+    if (authStore.pubkey) {
+      Object.values(statuses.value).forEach((s) => {
+        if (s.pubkey === authStore.pubkey && items.has(s.contentId)) {
+          items.get(s.contentId).userStatus = s.status
+        }
+      })
+    }
+
+    // 5. From community metadata (kind 35403): fill in whatever the
+    // event-derived item is still missing (poster, banner, overview, genres).
     Object.entries(communityMetadata.value).forEach(([cId, meta]) => {
       if (items.has(cId)) {
         const existing = items.get(cId)
         items.set(cId, {
           ...existing,
           poster: existing.poster || meta.poster,
-          genres: meta.genres || existing.genres,
+          banner: existing.banner || meta.banner,
+          overview: existing.overview || meta.overview,
+          genres: existing.genres && existing.genres.length ? existing.genres : meta.genres,
         })
       }
     })
@@ -610,7 +767,9 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   const trackedItemsList = computed(() => {
-    return Object.values(statuses.value)
+    // The library is the viewer's own tracking — never strangers' events.
+    if (!authStore.pubkey) return []
+    return Object.values(statuses.value).filter((s) => s.pubkey === authStore.pubkey)
   })
 
   return {
@@ -620,8 +779,10 @@ export const useMediaStore = defineStore('media', () => {
     activityLogs,
     communityMetadata,
     mediaLibrary,
+    follows,
     isSyncing,
     syncUserData,
+    fetchFollows,
     fetchMediaDetails,
     fetchRecentFeed,
     fetchPopularMediaFromEvents,
