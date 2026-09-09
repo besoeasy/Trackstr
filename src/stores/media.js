@@ -394,6 +394,16 @@ export const useMediaStore = defineStore('media', () => {
     return activityLogs.value.filter((a) => a.contentId === contentId)
   }
 
+  function cacheMediaItem(item) {
+    if (item && item.contentId) {
+      mediaLibrary.value[item.contentId] = {
+        ...mediaLibrary.value[item.contentId],
+        ...item,
+      }
+      saveToLocalStorage()
+    }
+  }
+
   const trackedItemsList = computed(() => {
     return Object.values(statuses.value)
   })
@@ -419,6 +429,7 @@ export const useMediaStore = defineStore('media', () => {
     getMediaMetadata,
     getReviewsForMedia,
     getActivityForMedia,
+    cacheMediaItem,
     trackedItemsList,
   }
 })

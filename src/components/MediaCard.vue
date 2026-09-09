@@ -39,6 +39,7 @@ const userRating = computed(() => {
 
 function navigateToDetail() {
   if (props.media.contentId) {
+    mediaStore.cacheMediaItem(props.media)
     router.push({
       name: 'media-detail',
       params: { contentId: props.media.contentId },

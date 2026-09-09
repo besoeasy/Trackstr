@@ -4,13 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { searchTmdb, SAMPLE_MEDIA, getTmdbApiKey } from '@/services/api/tmdb.js'
 import { searchMusicBrainz, SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
 import { computeContentId } from '@/utils/contentId.js'
+import { useMediaStore } from '@/stores/media.js'
 import MediaCard from '@/components/MediaCard.vue'
 
 const route = useRoute()
 const router = useRouter()
+const mediaStore = useMediaStore()
 
 const query = ref(route.query.q || '')
-const activeTab = ref(route.query.tab || 'all') // 'all' | 'movies' | 'music'
+const activeTab = ref(route.query.tab || 'all') // 'all' | 'movies' | 'shows' | 'music'
 const isSearching = ref(false)
 const results = ref([])
 const hasSearched = ref(false)
@@ -23,6 +25,7 @@ async function executeSearch() {
   if (!q) {
     results.value = []
     hasSearched.value = false
+    loadInitialSamples()
     return
   }
 
@@ -34,7 +37,7 @@ async function executeSearch() {
 
     if (activeTab.value === 'all') {
       const [tmdbRes, mbRes] = await Promise.allSettled([
-        searchTmdb(q),
+        searchTmdb(q, 'all'),
         searchMusicBrainz(q),
       ])
 
@@ -42,7 +45,9 @@ async function executeSearch() {
       const mbItems = mbRes.status === 'fulfilled' ? mbRes.value : []
       items = [...tmdbItems, ...mbItems]
     } else if (activeTab.value === 'movies') {
-      items = await searchTmdb(q)
+      items = await searchTmdb(q, 'movies')
+    } else if (activeTab.value === 'shows') {
+      items = await searchTmdb(q, 'shows')
     } else if (activeTab.value === 'music') {
       items = await searchMusicBrainz(q)
     }
@@ -56,11 +61,14 @@ async function executeSearch() {
         year: item.year,
         artist: item.artist,
       })
-      enriched.push({
+      const fullItem = {
         ...item,
         contentId,
         canonicalString,
-      })
+      }
+      enriched.push(fullItem)
+      // Cache in media store so detail view has instant data
+      mediaStore.cacheMediaItem(fullItem)
     }
 
     results.value = enriched
@@ -87,7 +95,6 @@ onMounted(() => {
   if (query.value) {
     executeSearch()
   } else {
-    // Show sample media on initial empty search
     loadInitialSamples()
   }
 })
@@ -101,7 +108,9 @@ async function loadInitialSamples() {
       year: item.year,
       artist: item.artist,
     })
-    enriched.push({ ...item, contentId, canonicalString })
+    const full = { ...item, contentId, canonicalString }
+    enriched.push(full)
+    mediaStore.cacheMediaItem(full)
   }
   results.value = enriched
 }
@@ -121,7 +130,7 @@ async function loadInitialSamples() {
           v-model="query"
           type="search"
           class="input search-input"
-          placeholder="Search by title, artist, or franchise..."
+          placeholder="Search movies, TV shows, music albums, artists..."
           autofocus
           @input="onInput"
           @keyup.enter="executeSearch"
@@ -144,7 +153,15 @@ async function loadInitialSamples() {
           type="button"
           @click="setTab('movies')"
         >
-          🎬 Movies & TV
+          🎬 Movies
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ 'is-active': activeTab === 'shows' }"
+          type="button"
+          @click="setTab('shows')"
+        >
+          📺 TV Shows
         </button>
         <button
           class="tab-btn"
@@ -152,15 +169,15 @@ async function loadInitialSamples() {
           type="button"
           @click="setTab('music')"
         >
-          🎵 Music (MusicBrainz)
+          🎵 Music
         </button>
       </div>
 
-      <!-- Free limits TMDB notice if no key -->
-      <div v-if="!hasTmdbKey" class="free-limit-tip card">
-        <span class="tip-icon">💡</span>
+      <!-- Provider info badge -->
+      <div class="free-limit-tip card">
+        <span class="tip-icon">🌐</span>
         <div class="tip-text">
-          <strong>Free API Notice:</strong> Music search uses open MusicBrainz. For live movie/TV search, add a free TMDB API key in Settings (⚙️). Currently showing curated sample library.
+          <strong>Open Decentralized Metadata:</strong> TV shows (TVMaze), movies (open encyclopedia), and music (MusicBrainz) work out-of-the-box with zero API keys required. You can also configure an optional free TMDB key in Settings (⚙️).
         </div>
       </div>
     </div>
