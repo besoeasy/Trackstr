@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { nostrClient } from '@/services/nostr/client.js'
-import { bunkerService } from '@/services/nostr/bunker.js'
+import { localSigner } from '@/services/nostr/localSigner.js'
 import { logger } from '@/utils/logger.js'
 import { isValidPubkey } from '@/utils/urls.js'
 import { nip19 } from 'nostr-tools'
@@ -13,10 +13,11 @@ function loadStoredIdentity() {
       // Corrupted or tampered storage must never yield a fake session.
       localStorage.removeItem('trackstr_pubkey')
       localStorage.removeItem('trackstr_auth_type')
+      localStorage.removeItem('trackstr_nsec')
       return { pubkey: '', authType: null }
     }
     const storedType = localStorage.getItem('trackstr_auth_type')
-    const authType = storedType === 'bunker' || storedType === 'extension' ? storedType : storedPubkey ? 'extension' : null
+    const authType = storedType === 'nsec' || storedType === 'extension' ? storedType : storedPubkey ? 'extension' : null
     return { pubkey: storedPubkey, authType }
   } catch {
     return { pubkey: '', authType: null }
@@ -28,7 +29,6 @@ export const useAuthStore = defineStore('auth', () => {
   const pubkey = ref(stored.pubkey)
   const authType = ref(stored.authType)
   const showLoginModal = ref(false)
-  const bunkerPointer = ref(bunkerService.getBunkerPointer())
   const profile = ref(null)
   const isLoggingIn = ref(false)
   const loginStatusMessage = ref('')
@@ -95,10 +95,10 @@ export const useAuthStore = defineStore('auth', () => {
     logger.info('AuthStore', 'User triggered loginWithExtension()')
 
     try {
-      // A lingering Bunker signer would keep signing (client prefers it),
+      // A lingering local nsec signer would keep signing (client prefers it),
       // attributing events to the wrong identity — disconnect it first.
-      if (bunkerService.isConnected()) {
-        await bunkerService.disconnectBunker()
+      if (localSigner.isConnected()) {
+        localSigner.disconnect()
       }
       const hex = await nostrClient.getPublicKeyFromExtension()
       if (!hex) {
@@ -135,32 +135,27 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Log in using NIP-46 Bunker (bunker://... or username@domain.com)
-   * @param {string} bunkerInput
-   * @param {Object} [options]
+   * Log in using an existing nsec private key (NIP-19).
+   * The key is stored locally so events can be signed in the browser.
+   * @param {string} nsecInput nsec1... / nostr:nsec1... / hex
    */
-  async function loginWithBunker(bunkerInput, options = {}) {
+  async function loginWithNsec(nsecInput) {
     isLoggingIn.value = true
     loginError.value = ''
-    loginStatusMessage.value = 'Resolving Bunker connection...'
+    loginStatusMessage.value = 'Validating nsec key...'
     lastErrorDetails.value = null
 
-    logger.info('AuthStore', 'User triggered loginWithBunker()')
+    logger.info('AuthStore', 'User triggered loginWithNsec()')
 
     try {
-      const result = await bunkerService.connectBunker(bunkerInput, {
-        pool: nostrClient.pool,
-        onStatus: (msg) => {
-          loginStatusMessage.value = msg
-        },
-        onAuthUrl: options.onAuthUrl,
-      })
+      // A lingering extension signer would keep signing (client prefers it),
+      // attributing events to the wrong identity — disconnect it first.
+      const result = await localSigner.loginWithNsec(nsecInput)
 
       pubkey.value = result.pubkey
-      authType.value = 'bunker'
-      bunkerPointer.value = result.pointer
+      authType.value = 'nsec'
 
-      logger.info('AuthStore', `Bunker login successful! Pubkey: ${result.pubkey}`)
+      logger.info('AuthStore', `nsec login successful! Pubkey: ${result.pubkey}`)
 
       // Close modal on successful connection
       closeLoginModal()
@@ -170,7 +165,7 @@ export const useAuthStore = defineStore('auth', () => {
       return result.pubkey
     } catch (err) {
       const msg = err?.message || String(err)
-      logger.error('AuthStore', `Bunker login failed: ${msg}`, err)
+      logger.error('AuthStore', `nsec login failed: ${msg}`, err)
       loginError.value = msg
       lastErrorDetails.value = {
         message: msg,
@@ -186,41 +181,34 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Log in using Nostr Connect QR code URI
-   * @param {string} uri nostrconnect:// URI
-   * @param {Object} [options]
+   * Creates a fresh disposable account (new random nsec) and logs in.
+   * @returns {Promise<{ pubkey: string, nsec: string }>}
    */
-  async function loginWithNostrConnectUri(uri, options = {}) {
+  async function createDisposableAccount() {
     isLoggingIn.value = true
     loginError.value = ''
-    loginStatusMessage.value = 'Waiting for signer connection...'
+    loginStatusMessage.value = 'Generating a fresh Nostr identity...'
     lastErrorDetails.value = null
 
+    logger.info('AuthStore', 'User triggered createDisposableAccount()')
+
     try {
-      const result = await bunkerService.listenForNostrConnect(uri, {
-        pool: nostrClient.pool,
-        abortSignal: options.abortSignal,
-        onStatus: (msg) => {
-          loginStatusMessage.value = msg
-        },
-        onAuthUrl: options.onAuthUrl,
-      })
+      const result = await localSigner.createDisposableAccount()
 
       pubkey.value = result.pubkey
-      authType.value = 'bunker'
-      bunkerPointer.value = result.pointer
+      authType.value = 'nsec'
 
-      logger.info('AuthStore', `Bunker QR login successful! Pubkey: ${result.pubkey}`)
+      logger.info('AuthStore', `Disposable account created! Pubkey: ${result.pubkey}`)
 
+      // Close modal on successful connection
       closeLoginModal()
+
+      // Fetch Kind 0 profile in background
       fetchUserProfile(result.pubkey)
-      return result.pubkey
+      return result
     } catch (err) {
-      if (options.abortSignal?.aborted) {
-        return null
-      }
       const msg = err?.message || String(err)
-      logger.error('AuthStore', `Bunker QR login failed: ${msg}`, err)
+      logger.error('AuthStore', `Disposable account creation failed: ${msg}`, err)
       loginError.value = msg
       lastErrorDetails.value = {
         message: msg,
@@ -233,6 +221,14 @@ export const useAuthStore = defineStore('auth', () => {
       isLoggingIn.value = false
       loginStatusMessage.value = ''
     }
+  }
+
+  /**
+   * Returns the active local nsec (for backup/export display).
+   * @returns {string}
+   */
+  function getActiveNsec() {
+    return localSigner.getNsec()
   }
 
   /**
@@ -253,12 +249,11 @@ export const useAuthStore = defineStore('auth', () => {
    * Log out
    */
   async function logout() {
-    if (authType.value === 'bunker') {
-      await bunkerService.disconnectBunker()
+    if (authType.value === 'nsec') {
+      localSigner.disconnect()
     }
     pubkey.value = ''
     authType.value = null
-    bunkerPointer.value = null
     profile.value = null
     localStorage.removeItem('trackstr_pubkey')
     localStorage.removeItem('trackstr_auth_type')
@@ -271,10 +266,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Restore session on initial load
-  if (authType.value === 'bunker') {
-    bunkerService.restoreBunkerSigner({ pool: nostrClient.pool }).catch((err) => {
-      logger.warn('AuthStore', 'Failed to restore Bunker signer session:', err)
-    })
+  if (authType.value === 'nsec') {
+    localSigner.restoreSession()
   }
 
   if (pubkey.value) {
@@ -286,7 +279,6 @@ export const useAuthStore = defineStore('auth', () => {
     npub,
     authType,
     showLoginModal,
-    bunkerPointer,
     profile,
     displayName,
     avatarUrl,
@@ -299,8 +291,9 @@ export const useAuthStore = defineStore('auth', () => {
     openLoginModal,
     closeLoginModal,
     loginWithExtension,
-    loginWithBunker,
-    loginWithNostrConnectUri,
+    loginWithNsec,
+    createDisposableAccount,
+    getActiveNsec,
     refreshDiagnostics,
     fetchUserProfile,
     logout,
