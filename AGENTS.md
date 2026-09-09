@@ -1,7 +1,7 @@
 # Trackstr — AGENTS.md
 
 Trackstr is an open, Nostr-powered media tracking + social platform (movies, shows, music).
-Stack: Vue.js + Vite + TypeScript. Media storage: IPFS via [Originless](https://github.com/besoeasy/Originless). Metadata: TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
+Stack: Vue.js + Vite + TypeScript. Media storage: IPFS via [Originless](https://github.com/besoeasy/Originless) (free public instance: https://originless.gupt.app/). Metadata: TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
 Portable social layer: activity, ratings, reviews, social graph live on Nostr, owned by the user's identity.
 
 ## Architecture Philosophy: Mutable State vs. Immutable Logs
@@ -170,10 +170,10 @@ Decentralized media metadata curation allows users to publish and share posters,
   - Clients cache winning items in local storage (e.g. IndexedDB).
   - Background delta-sync queries relays with `{"kinds": [35400, 35402, 35403, 5401, 5402], "since": <last_synced_unix_timestamp>}` for instant UI loading without relay wait.
 - **Media storage & uploads (IPFS via Originless)**:
-  - All media uploads (posters, backdrops/banners, artwork, avatars) MUST use IPFS content addressing via [Originless](https://github.com/besoeasy/Originless).
+  - All media uploads (posters, backdrops/banners, artwork, avatars) MUST use IPFS content addressing via [Originless](https://github.com/besoeasy/Originless) (free public instance for uploading media: https://originless.gupt.app/).
   - Event tags stick strictly to `ipfs://<CID>` (e.g. `["poster", "ipfs://bafybeic..."]`).
   - No centralized HTTP/HTTPS URLs (AWS S3, Imgur, Cloudinary, etc.) are allowed in event tags for uploaded media—Trackstr is decentralized and media assets must remain permanent and content-addressed.
-  - Client UIs resolve `ipfs://<CID>` via local IPFS nodes or gateway URLs (e.g. Originless gateway) at presentation time.
+  - Client UIs resolve `ipfs://<CID>` via local IPFS nodes or gateway URLs (e.g. Originless gateway, https://originless.gupt.app/) at presentation time.
 
 ---
 
