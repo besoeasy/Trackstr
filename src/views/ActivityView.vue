@@ -229,12 +229,58 @@ function navigateToMedia(tags) {
 
 .timeline-content {
   font-size: 0.92rem;
-  color: var(--text-secondary);
   line-height: 1.5;
+  color: var(--text-secondary);
   white-space: pre-line;
   background: var(--bg-surface);
   padding: 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 640px) {
+  .activity-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .activity-header .btn {
+    align-self: stretch;
+    justify-content: center;
+  }
+
+  .page-title {
+    font-size: 1.8rem;
+  }
+
+  .tabs-bar {
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    margin-bottom: 16px;
+    padding-bottom: 4px;
+  }
+
+  .tabs-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs-bar .tab-btn {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .timeline-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .timeline-media {
+    flex-wrap: wrap;
+  }
 }
 </style>

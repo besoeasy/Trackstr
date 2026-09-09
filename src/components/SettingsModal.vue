@@ -44,6 +44,7 @@ function resetOriginless() {
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-dialog">
+      <div class="sheet-drag-handle"></div>
       <div class="modal-header">
         <h2 class="modal-title">Settings & Network</h2>
         <button class="btn btn-icon" type="button" @click="$emit('close')">✕</button>
@@ -249,5 +250,23 @@ function resetOriginless() {
 .link {
   color: var(--primary);
   text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .add-relay-row {
+    flex-direction: column;
+  }
+
+  .add-relay-row .btn {
+    width: 100%;
+  }
+
+  .input-with-action {
+    flex-direction: column;
+  }
+
+  .input-with-action .btn {
+    width: 100%;
+  }
 }
 </style>

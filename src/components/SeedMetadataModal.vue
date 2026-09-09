@@ -122,6 +122,7 @@ function onFileSelect(e) {
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-dialog">
+      <div class="sheet-drag-handle"></div>
       <div class="modal-header">
         <h2 class="modal-title">Seed Metadata to Nostr (Kind 35403)</h2>
         <button class="btn btn-icon" type="button" @click="$emit('close')">✕</button>

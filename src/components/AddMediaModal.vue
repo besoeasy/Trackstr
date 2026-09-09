@@ -246,6 +246,7 @@ async function handleSave() {
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-dialog modal-add">
+      <div class="sheet-drag-handle"></div>
       <div class="modal-header">
         <div>
           <h2 class="modal-title">Track New Media</h2>
@@ -760,5 +761,38 @@ async function handleSave() {
   padding: 2px 6px;
   border-radius: 4px;
   word-break: break-all;
+}
+
+@media (max-width: 640px) {
+  .type-cards-grid {
+    gap: 8px;
+  }
+
+  .minimal-type-card {
+    padding: 10px 6px;
+  }
+
+  .type-icon-wrap {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 4px;
+  }
+
+  .type-icon {
+    font-size: 1.15rem;
+  }
+
+  .type-name {
+    font-size: 0.82rem;
+  }
+
+  .type-desc {
+    display: none;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 </style>

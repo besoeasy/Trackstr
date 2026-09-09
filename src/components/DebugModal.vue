@@ -135,6 +135,7 @@ function handleClearLogs() {
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-dialog modal-debug">
+      <div class="sheet-drag-handle"></div>
       <div class="modal-header">
         <div class="header-left">
           <span class="debug-badge">🐞</span>
@@ -449,5 +450,27 @@ function handleClearLogs() {
   border-radius: 4px;
   margin-top: 2px;
   white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .diag-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .test-actions {
+    flex-direction: column;
+  }
+
+  .test-actions .btn {
+    width: 100%;
+  }
+
+  .header-left {
+    gap: 8px;
+  }
+
+  .modal-title {
+    font-size: 1.05rem;
+  }
 }
 </style>

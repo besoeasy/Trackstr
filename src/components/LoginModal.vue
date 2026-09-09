@@ -168,6 +168,7 @@ function handleOpenDebug() {
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-dialog login-dialog">
+      <div class="sheet-drag-handle"></div>
       <div class="modal-header">
         <div class="login-header-text">
           <h2 class="modal-title">Connect Nostr Account</h2>
@@ -912,5 +913,32 @@ function handleOpenDebug() {
 .manual-input-box {
   margin-top: 12px;
   animation: fadeIn 0.25s ease;
+}
+
+@media (max-width: 520px) {
+  .method-tabs {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .qr-frame {
+    min-width: 180px;
+    min-height: 180px;
+    padding: 8px;
+  }
+
+  .qr-code-img {
+    width: 170px;
+    height: 170px;
+  }
+
+  .qr-actions-row {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .qr-actions-row .btn {
+    width: 100%;
+  }
 }
 </style>

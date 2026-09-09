@@ -181,4 +181,20 @@ function onLeave() {
   font-size: 0.82rem;
   color: var(--text-muted);
 }
+
+@media (max-width: 640px) {
+  .rating-input-container {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .stars-row {
+    gap: 1px;
+  }
+
+  .star-btn {
+    font-size: 1.45rem;
+    padding: 4px 2px;
+  }
+}
 </style>

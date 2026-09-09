@@ -178,4 +178,23 @@ function navigateToDetail() {
   border-color: rgba(14, 165, 233, 0.35);
   transform: translateY(-1px);
 }
+
+.media-card:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 640px) {
+  .media-card-body {
+    padding: 10px;
+  }
+
+  .media-title {
+    font-size: 0.88rem;
+    line-height: 1.25;
+  }
+
+  .media-meta {
+    font-size: 0.75rem;
+  }
+}
 </style>

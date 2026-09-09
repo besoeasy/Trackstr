@@ -641,9 +641,23 @@ function copyContentId() {
 }
 
 @media (max-width: 880px) {
+  .backdrop-banner {
+    height: 240px;
+  }
+
+  .detail-container {
+    margin: -90px auto 0;
+    padding: 0 16px;
+  }
+
   .detail-grid {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 24px;
+  }
+
+  .poster-col {
+    max-width: 220px;
+    margin: 0 auto;
   }
 }
 
@@ -823,6 +837,35 @@ function copyContentId() {
   padding-top: 18px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .action-panel {
+    padding: 16px;
+  }
+
+  .action-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .action-item {
+    min-width: 100%;
+  }
+
+  .action-buttons-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .action-buttons-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .media-title {
+    font-size: 1.85rem;
+  }
 }
 
 .section-heading {
@@ -1032,6 +1075,19 @@ function copyContentId() {
   color: var(--text-muted);
 }
 
+@media (max-width: 640px) {
+  .activity-log-item {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .activity-date {
+    width: 100%;
+    margin-left: 0;
+    font-size: 0.74rem;
+  }
+}
+
 .badge-tmdb-score {
   background: rgba(245, 158, 11, 0.15);
   color: var(--accent-amber);
@@ -1069,6 +1125,26 @@ function copyContentId() {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .cast-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    padding-bottom: 8px;
+    scrollbar-width: none;
+  }
+
+  .cast-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cast-card {
+    flex: 0 0 115px;
+    scroll-snap-align: start;
+  }
 }
 
 .cast-card {

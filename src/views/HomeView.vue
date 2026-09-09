@@ -552,20 +552,20 @@ watch(
 
 .clear-search-btn {
   position: absolute;
-  right: 16px;
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 50%;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   transition: all 0.2s var(--ease-spring);
 }
 
@@ -573,14 +573,14 @@ watch(
   color: var(--text-main);
   background: var(--bg-card-hover);
   border-color: var(--border-hover);
-  transform: translateY(-50%) scale(1.15);
+  transform: translateY(-50%) scale(1.1);
 }
 
 /* Category Tabs with Animated Pill Feedback */
 .search-tabs {
   justify-content: center;
   border-bottom: none;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
   padding: 6px;
   background: rgba(16, 20, 32, 0.55);
@@ -588,16 +588,25 @@ watch(
   border-radius: var(--radius-full);
   display: inline-flex;
   border: 1px solid var(--border-subtle);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.search-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .search-tabs .tab-btn {
-  padding: 8px 20px;
-  font-size: 0.92rem;
+  padding: 8px 18px;
+  font-size: 0.9rem;
   font-weight: 600;
   border-radius: var(--radius-full);
   border: none;
   transition: all 0.25s var(--ease-spring);
   color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .search-tabs .tab-btn:hover {
@@ -614,6 +623,41 @@ watch(
   color: #ffffff;
   box-shadow: 0 4px 18px var(--primary-glow);
   transform: scale(1.03);
+}
+
+@media (max-width: 640px) {
+  .hero-search-section {
+    padding: 24px 0 20px;
+  }
+
+  .hero-title {
+    font-size: 2rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+  }
+
+  .search-input {
+    padding: 13px 44px 13px 44px;
+    font-size: 0.98rem;
+  }
+
+  .search-icon {
+    left: 14px;
+    font-size: 1rem;
+  }
+
+  .clear-search-btn {
+    right: 10px;
+  }
+
+  .search-tabs {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 4px;
+  }
 }
 
 .title-with-badge {
@@ -705,8 +749,22 @@ watch(
 
 @media (max-width: 840px) {
   .arch-banner {
-    grid-template-columns: 1fr;
-    gap: 18px;
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    padding: 16px;
+    margin: 24px 0 36px;
+    scrollbar-width: none;
+  }
+  .arch-banner::-webkit-scrollbar {
+    display: none;
+  }
+  .arch-col {
+    flex: 0 0 82%;
+    scroll-snap-align: start;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
   }
 }
 
@@ -772,10 +830,29 @@ watch(
   margin-bottom: 22px;
 }
 
+@media (max-width: 640px) {
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .section-header .btn {
+    align-self: stretch;
+    justify-content: center;
+  }
+}
+
 .section-title {
   font-size: 1.55rem;
   font-weight: 800;
   letter-spacing: -0.025em;
+}
+
+@media (max-width: 640px) {
+  .section-title {
+    font-size: 1.35rem;
+  }
 }
 
 .section-subtitle {

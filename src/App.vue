@@ -123,6 +123,14 @@ onUnmounted(() => {
   font-size: 0.9rem;
 }
 
+@media (max-width: 768px) {
+  .signing-banner {
+    bottom: calc(72px + var(--safe-bottom, 0px));
+    width: calc(100% - 24px);
+    padding: 10px 14px;
+  }
+}
+
 .signing-pulse {
   font-size: 1.4rem;
   animation: pulse 1s infinite alternate;

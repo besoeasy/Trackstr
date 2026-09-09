@@ -134,4 +134,15 @@ function selectStatus(val) {
   border-color: #f43f5e;
   box-shadow: 0 4px 14px rgba(244, 63, 94, 0.45);
 }
+
+@media (max-width: 640px) {
+  .status-pills-row {
+    gap: 6px;
+  }
+
+  .status-pill-btn {
+    padding: 7px 12px;
+    font-size: 0.8rem;
+  }
+}
 </style>
