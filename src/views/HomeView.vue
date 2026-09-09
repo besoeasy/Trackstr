@@ -6,6 +6,7 @@ import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import { computeContentId } from '@/utils/contentId.js'
 import { formatRelativeTime } from '@/utils/formatters.js'
+import { resolveIpfsUrl } from '@/services/originless.js'
 import MediaCard from '@/components/MediaCard.vue'
 
 const route = useRoute()
@@ -28,6 +29,12 @@ const popularItems = ref([])
 const isLoadingPopular = ref(false)
 const recentFeed = ref([])
 const isLoadingFeed = ref(false)
+
+// Personalized Suggestion state (random unwatched movie from Nostr events)
+const suggestion = ref(null)
+const suggestionPool = ref([])
+const isLoadingSuggestion = ref(false)
+const suggestionError = ref('')
 
 let debounceTimer = null
 let searchSeq = 0 // latest search wins; stale responses are discarded
@@ -174,12 +181,83 @@ async function loadFeed() {
   }
 }
 
+// A movie counts as "already watched" when the viewer has marked it
+// completed/watching or rated it — those are the states that mean "seen".
+function isWatchedByUser(item) {
+  if (!item?.contentId) return false
+  const status = mediaStore.getMediaStatus(item.contentId)
+  if (status && ['completed', 'watching'].includes(status.status)) return true
+  const rating = mediaStore.getMediaRating(item.contentId)
+  return rating !== null && rating !== undefined
+}
+
+function pickRandomSuggestion() {
+  if (suggestionPool.value.length === 0) {
+    suggestion.value = null
+    return
+  }
+  let next = suggestion.value
+  let attempts = 0
+  while (suggestionPool.value.length > 1 && next === suggestion.value && attempts < 20) {
+    next = suggestionPool.value[Math.floor(Math.random() * suggestionPool.value.length)]
+    attempts++
+  }
+  suggestion.value = next
+}
+
+// Builds the suggestion pool from Nostr relay activity (movies only),
+// excluding anything the viewer has already watched.
+async function loadSuggestions() {
+  isLoadingSuggestion.value = true
+  suggestionError.value = ''
+  try {
+    const items = await mediaStore.fetchPopularMediaFromEvents({ type: 'movie', limit: 60 })
+    suggestionPool.value = items.filter((item) => !isWatchedByUser(item))
+    pickRandomSuggestion()
+  } catch (err) {
+    console.warn('Failed to load suggestions:', err)
+    suggestionError.value = 'Could not load suggestions from Nostr relays.'
+  } finally {
+    isLoadingSuggestion.value = false
+  }
+}
+
+function shuffleSuggestion() {
+  pickRandomSuggestion()
+}
+
+function openSuggestion() {
+  const item = suggestion.value
+  if (!item?.contentId) return
+  mediaStore.cacheMediaItem(item)
+  router.push({
+    name: 'media-detail',
+    params: { contentId: item.contentId },
+    query: {
+      type: item.type,
+      title: item.title || item.name,
+      year: item.year,
+      artist: item.artist,
+    },
+  })
+}
+
+const suggestionTitle = computed(() => suggestion.value?.title || suggestion.value?.name || '')
+const suggestionPoster = computed(() => {
+  const item = suggestion.value
+  if (!item) return ''
+  if (item.poster) return resolveIpfsUrl(item.poster)
+  const meta = mediaStore.getMediaMetadata(item.contentId)
+  return meta?.poster ? resolveIpfsUrl(meta.poster) : ''
+})
+
 onMounted(async () => {
   if (query.value.trim()) {
     executeSearch()
   }
   loadPopularFromNostr()
   loadFeed()
+  loadSuggestions()
 
   if (route.query.focus === 'search' || route.query.track === 'true') {
     setTimeout(() => {
@@ -210,6 +288,20 @@ watch(
       }
     }
   }
+)
+
+// Keep the suggestion honest: if the viewer just watched/rated the current
+// suggestion (or anything in the pool), drop it and pick a fresh one.
+watch(
+  () => [mediaStore.statuses, mediaStore.ratings],
+  () => {
+    if (suggestionPool.value.length === 0) return
+    suggestionPool.value = suggestionPool.value.filter((item) => !isWatchedByUser(item))
+    if (suggestion.value && isWatchedByUser(suggestion.value)) {
+      pickRandomSuggestion()
+    }
+  },
+  { deep: true }
 )
 </script>
 
@@ -322,8 +414,86 @@ watch(
       </div>
     </section>
 
-    <!-- CASE 2: DEFAULT HOME VIEW (POPULAR ON NOSTR + LIVE FEED) -->
+    <!-- CASE 2: DEFAULT HOME VIEW (SUGGESTION + POPULAR ON NOSTR + LIVE FEED) -->
     <template v-else>
+      <!-- Personalized Suggestion (random unwatched movie from Nostr) -->
+      <section class="section suggestion-section">
+        <div class="section-header">
+          <div>
+            <div class="title-with-badge">
+              <h2 class="section-title">🎲 Suggestion for You</h2>
+              <span class="badge badge-primary nostr-live-tag">⚡ Powered by Nostr</span>
+            </div>
+            <p class="section-subtitle">
+              A random movie from the Nostr community you haven't watched yet
+            </p>
+          </div>
+
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            :disabled="isLoadingSuggestion || suggestionPool.length === 0"
+            @click="shuffleSuggestion"
+          >
+            🎲 Shuffle
+          </button>
+        </div>
+
+        <div v-if="isLoadingSuggestion" class="loading-state">
+          <div class="spinner"></div>
+          <p>Querying Nostr relays for a fresh suggestion...</p>
+        </div>
+
+        <div v-else-if="suggestion" class="suggestion-card card">
+          <div class="suggestion-poster">
+            <img
+              v-if="suggestionPoster"
+              :src="suggestionPoster"
+              :alt="suggestionTitle"
+              class="suggestion-poster-img"
+              loading="lazy"
+              @error="$event.target.style.display = 'none'"
+            />
+            <div v-else class="suggestion-poster-fallback">🎬</div>
+          </div>
+
+          <div class="suggestion-info">
+            <div class="suggestion-meta">
+              <span class="badge badge-primary suggestion-type-tag">{{ suggestion.type }}</span>
+              <span v-if="suggestion.year" class="suggestion-year">{{ suggestion.year }}</span>
+              <span v-if="suggestion.nostrEventCount" class="suggestion-stats">
+                ⚡ {{ suggestion.nostrEventCount }} Nostr event{{ suggestion.nostrEventCount === 1 ? '' : 's' }}
+              </span>
+            </div>
+
+            <h3 class="suggestion-title">{{ suggestionTitle }}</h3>
+            <p v-if="suggestion.overview" class="suggestion-overview">{{ suggestion.overview }}</p>
+
+            <div class="suggestion-actions">
+              <button class="btn btn-primary" type="button" @click="openSuggestion">
+                ▶ Track This Movie
+              </button>
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :disabled="suggestionPool.length <= 1"
+                @click="shuffleSuggestion"
+              >
+                🎲 Another
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="empty-feed card">
+          <div class="empty-icon">🎲</div>
+          <p v-if="suggestionError">{{ suggestionError }}</p>
+          <p v-else-if="popularItems.length > 0">You've watched everything on the connected relays! 🎉</p>
+          <p v-else>No media tracked on connected Nostr relays yet.</p>
+          <p class="form-hint">Search for a movie above and track it — or wait for the community to add more!</p>
+        </div>
+      </section>
+
       <!-- Popular & Featured Titles on Nostr -->
       <section class="section">
         <div class="section-header">
@@ -730,5 +900,119 @@ watch(
   font-size: 0.88rem;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+/* Personalized Suggestion Card */
+.suggestion-card {
+  display: flex;
+  gap: 24px;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.suggestion-poster {
+  flex-shrink: 0;
+  width: 180px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #0c0c0c;
+  border: 1px solid var(--border-subtle);
+}
+
+.suggestion-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.suggestion-poster-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  opacity: 0.5;
+}
+
+.suggestion-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.suggestion-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.suggestion-type-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.suggestion-year {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.suggestion-stats {
+  font-size: 0.75rem;
+  color: var(--accent-emerald);
+  font-family: var(--font-mono);
+}
+
+.suggestion-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--text-main);
+}
+
+.suggestion-overview {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .suggestion-card {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .suggestion-poster {
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
+  }
+
+  .suggestion-title {
+    font-size: 1.3rem;
+  }
 }
 </style>
