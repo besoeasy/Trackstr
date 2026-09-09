@@ -4,19 +4,22 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useSettingsStore } from '@/stores/settings.js'
 import SettingsModal from './SettingsModal.vue'
+import DebugModal from './DebugModal.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
 
 const showSettings = ref(false)
+const showDebug = ref(false)
 const showUserMenu = ref(false)
 
 async function handleLogin() {
   try {
     await authStore.loginWithExtension()
   } catch (err) {
-    alert(err.message || 'Extension connection failed. Please ensure a Nostr extension (Alby, nos2x) is installed.')
+    // Open debug diagnostics modal automatically on failure so the user sees exactly what went wrong
+    showDebug.value = true
   }
 }
 
@@ -45,6 +48,16 @@ function handleLogout() {
       </nav>
 
       <div class="nav-actions">
+        <!-- Debug Diagnostics -->
+        <button
+          class="btn btn-icon"
+          type="button"
+          title="Extension & Network Diagnostics (Debug Logs)"
+          @click="showDebug = true"
+        >
+          🐞
+        </button>
+
         <!-- Theme toggle -->
         <button
           class="btn btn-icon"
@@ -116,6 +129,7 @@ function handleLogout() {
   </header>
 
   <SettingsModal v-if="showSettings" @close="showSettings = false" />
+  <DebugModal v-if="showDebug" @close="showDebug = false" />
 </template>
 
 <style scoped>

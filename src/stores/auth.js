@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { nostrClient } from '@/services/nostr/client.js'
+import { logger } from '@/utils/logger.js'
 import { nip19 } from 'nostr-tools'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -8,6 +9,8 @@ export const useAuthStore = defineStore('auth', () => {
   const profile = ref(null)
   const isLoggingIn = ref(false)
   const loginError = ref('')
+  const lastErrorDetails = ref(null)
+  const diagnostics = ref(nostrClient.getDiagnostics())
 
   const isAuthenticated = computed(() => !!pubkey.value)
 
@@ -31,18 +34,23 @@ export const useAuthStore = defineStore('auth', () => {
     return profile.value?.picture || ''
   })
 
+  function refreshDiagnostics() {
+    diagnostics.value = nostrClient.getDiagnostics()
+    return diagnostics.value
+  }
+
   /**
    * Log in using NIP-07 browser extension (Alby, nos2x, etc.)
    */
   async function loginWithExtension() {
     isLoggingIn.value = true
     loginError.value = ''
+    lastErrorDetails.value = null
+    refreshDiagnostics()
+
+    logger.info('AuthStore', 'User triggered loginWithExtension()')
 
     try {
-      if (!nostrClient.hasExtension()) {
-        throw new Error('Nostr browser extension not found. Please install Alby or nos2x.')
-      }
-
       const hex = await nostrClient.getPublicKeyFromExtension()
       if (!hex) {
         throw new Error('No public key returned by extension.')
@@ -50,13 +58,21 @@ export const useAuthStore = defineStore('auth', () => {
 
       pubkey.value = hex
       localStorage.setItem('trackstr_pubkey', hex)
+      logger.info('AuthStore', `Stored authenticated pubkey: ${hex}`)
 
       // Fetch Kind 0 profile in background
       fetchUserProfile(hex)
       return hex
     } catch (err) {
-      console.error('Login error:', err)
-      loginError.value = err.message || 'Failed to connect extension.'
+      const msg = err?.message || String(err)
+      logger.error('AuthStore', `Login failed: ${msg}`, { error: err, diagnostics: diagnostics.value })
+      loginError.value = msg
+      lastErrorDetails.value = {
+        message: msg,
+        stack: err?.stack || null,
+        diagnostics: diagnostics.value,
+        timestamp: new Date().toISOString(),
+      }
       throw err
     } finally {
       isLoggingIn.value = false
@@ -73,7 +89,7 @@ export const useAuthStore = defineStore('auth', () => {
         profile.value = p
       }
     } catch (e) {
-      console.warn('Failed to fetch profile metadata:', e)
+      logger.warn('AuthStore', 'Failed to fetch profile metadata:', e)
     }
   }
 
@@ -84,6 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
     pubkey.value = ''
     profile.value = null
     localStorage.removeItem('trackstr_pubkey')
+    logger.info('AuthStore', 'User logged out')
   }
 
   // Restore profile on initial load if pubkey exists
@@ -100,7 +117,10 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isLoggingIn,
     loginError,
+    lastErrorDetails,
+    diagnostics,
     loginWithExtension,
+    refreshDiagnostics,
     fetchUserProfile,
     logout,
   }
