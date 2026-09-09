@@ -11,7 +11,6 @@ import { getTmdbDetails } from '@/services/api/tmdb.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
 import ReviewModal from '@/components/ReviewModal.vue'
-import CheckInModal from '@/components/CheckInModal.vue'
 import SeedMetadataModal from '@/components/SeedMetadataModal.vue'
 
 const route = useRoute()
@@ -44,9 +43,16 @@ const media = ref({
 })
 
 const showReviewModal = ref(false)
-const showCheckInModal = ref(false)
 const showSeedModal = ref(false)
 const copied = ref(false)
+
+// Inline check-in / scrobble panel state
+const showCheckIn = ref(false)
+const checkInStatus = ref('watching')
+const checkInProgress = ref('')
+const checkInNote = ref('')
+const isLoggingCheckIn = ref(false)
+const checkInError = ref('')
 
 // User's current tracking status (Kind 35402)
 const userStatus = computed(() => {
@@ -200,11 +206,49 @@ function openReviewModal() {
 }
 
 function openCheckInModal() {
+  showCheckIn.value = !showCheckIn.value
+  if (showCheckIn.value) {
+    checkInStatus.value = media.value.type === 'music' ? 'listening' : 'watching'
+    checkInError.value = ''
+  }
+}
+
+/**
+ * Parses "S01E03" / "s1e3" into numbers so episode check-ins land on the
+ * addressable episode d-tag instead of clobbering the parent show.
+ */
+function parseEpisodeProgress(text) {
+  const m = /^\s*s?(\d{1,2})\s*e\s*(\d{1,3})\s*$/i.exec(text || '')
+  if (!m) return null
+  return { season: Number(m[1]), episode: Number(m[2]) }
+}
+
+async function submitCheckIn() {
   if (!authStore.isAuthenticated) {
     authStore.openLoginModal()
     return
   }
-  showCheckInModal.value = true
+  isLoggingCheckIn.value = true
+  checkInError.value = ''
+  try {
+    let entry = media.value
+    let progressText = checkInProgress.value
+    if (media.value.type === 'show') {
+      const ep = parseEpisodeProgress(checkInProgress.value)
+      if (ep) {
+        entry = { ...media.value, type: 'episode', season: ep.season, episode: ep.episode }
+        progressText = `s${ep.season}e${ep.episode}`
+      }
+    }
+    await mediaStore.setStatus(entry, checkInStatus.value, progressText, checkInNote.value)
+    showCheckIn.value = false
+    checkInProgress.value = ''
+    checkInNote.value = ''
+  } catch (err) {
+    checkInError.value = err.message || 'Failed to log check-in to Nostr.'
+  } finally {
+    isLoggingCheckIn.value = false
+  }
 }
 
 function openSeedModal() {
@@ -352,13 +396,61 @@ function copyContentId() {
             </div>
 
             <div class="action-buttons-row">
-              <button class="btn btn-secondary" type="button" @click="openCheckInModal">
+              <button
+                class="btn btn-secondary"
+                type="button"
+                :aria-expanded="showCheckIn"
+                @click="openCheckInModal"
+              >
                 ⏱️ Log Check-in / Scrobble
               </button>
               <button class="btn btn-primary" type="button" @click="openReviewModal">
                 ✍️ Write Review
               </button>
             </div>
+
+            <transition name="expand">
+              <div v-if="showCheckIn" class="checkin-inline">
+                <div v-if="checkInError" class="badge badge-danger error-banner">
+                  {{ checkInError }}
+                </div>
+                <div class="checkin-fields">
+                  <label class="checkin-field">
+                    <span class="action-label">Activity</span>
+                    <select v-model="checkInStatus" class="select">
+                      <option v-if="media.type === 'music'" value="listening">Listening Now</option>
+                      <option v-if="media.type === 'music'" value="completed">Finished Album / Track</option>
+                      <option v-if="media.type !== 'music'" value="watching">Watching Now</option>
+                      <option v-if="media.type !== 'music'" value="completed">Finished Watching</option>
+                    </select>
+                  </label>
+                  <label v-if="media.type === 'show'" class="checkin-field">
+                    <span class="action-label">Progress (S01E03)</span>
+                    <input v-model="checkInProgress" type="text" class="input" placeholder="e.g. S01E03" />
+                  </label>
+                  <label class="checkin-field checkin-note">
+                    <span class="action-label">Note (Optional)</span>
+                    <input v-model="checkInNote" type="text" class="input" placeholder="e.g. Rewatched in 4K" />
+                  </label>
+                </div>
+                <p class="form-hint">
+                  Emits a Mutable Status update (Kind 35402) and an Immutable check-in log (Kind 5402).
+                </p>
+                <div class="checkin-actions">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showCheckIn = false">
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="isLoggingCheckIn"
+                    @click="submitCheckIn"
+                  >
+                    {{ isLoggingCheckIn ? 'Logging...' : 'Sign & Log Check-in' }}
+                  </button>
+                </div>
+              </div>
+            </transition>
           </div>
 
           <!-- Overview / Synopsis -->
@@ -464,12 +556,6 @@ function copyContentId() {
       :media="media"
       :initial-rating="userRating"
       @close="showReviewModal = false"
-    />
-
-    <CheckInModal
-      v-if="showCheckInModal"
-      :media="media"
-      @close="showCheckInModal = false"
     />
 
     <SeedMetadataModal
@@ -798,6 +884,56 @@ function copyContentId() {
 
 .invalid-id .empty-icon {
   font-size: 2.2rem;
+}
+
+.checkin-inline {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checkin-inline .error-banner {
+  display: block;
+  padding: 8px 12px;
+}
+
+.checkin-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .checkin-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.checkin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.checkin-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.expand-enter-active,
+.expand-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .reviews-list {
