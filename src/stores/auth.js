@@ -224,14 +224,6 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Returns the active local nsec (for backup/export display).
-   * @returns {string}
-   */
-  function getActiveNsec() {
-    return localSigner.getNsec()
-  }
-
-  /**
    * Fetch profile metadata (kind 0)
    */
   async function fetchUserProfile(hex) {
@@ -293,7 +285,6 @@ export const useAuthStore = defineStore('auth', () => {
     loginWithExtension,
     loginWithNsec,
     createDisposableAccount,
-    getActiveNsec,
     refreshDiagnostics,
     fetchUserProfile,
     logout,

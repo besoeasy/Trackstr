@@ -74,11 +74,30 @@ watch(
   }
 )
 
+// The detail page starts with a 'Loading...' placeholder title when the item
+// isn't cached (direct URL / bookmark navigation). Reload once the real title
+// arrives so we never query TVMaze for the placeholder.
+watch(
+  () => props.media.title || props.media.name,
+  (newTitle, oldTitle) => {
+    if (newTitle && newTitle !== oldTitle && newTitle !== 'Loading...') {
+      loadEpisodes()
+    }
+  }
+)
+
 async function loadEpisodes() {
   isLoading.value = true
   try {
     const title = props.media.title || props.media.name || ''
-    const tmdbId = props.media.tmdbId || props.media.id
+    // Never query providers with the placeholder title.
+    if (!title || title === 'Loading...') {
+      episodesData.value = { seasons: [], totalEpisodes: 0, source: '' }
+      return
+    }
+    const rawId = props.media.tmdbId || props.media.id
+    // A tvmaze-<id> string must only go to TVMaze, never TMDB.
+    const tmdbId = rawId && !String(rawId).startsWith('tvmaze-') ? rawId : null
     const tvmazeId = props.media.id && String(props.media.id).startsWith('tvmaze-') ? props.media.id : null
     const numberOfSeasons = props.media.seasons || null
 

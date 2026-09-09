@@ -1,35 +1,6 @@
 /**
  * Trackstr formatting utilities
  */
-import { nip19 } from 'nostr-tools'
-
-/**
- * Formats a hex pubkey to npub (or short form)
- * @param {string} hex
- * @param {boolean} short
- * @returns {string}
- */
-export function formatPubkey(hex, short = true) {
-  if (!hex) return ''
-  try {
-    const npub = nip19.npubEncode(hex)
-    if (!short) return npub
-    return `${npub.slice(0, 9)}...${npub.slice(-5)}`
-  } catch {
-    return short ? `${hex.slice(0, 8)}...${hex.slice(-4)}` : hex
-  }
-}
-
-/**
- * Truncate a CID for display
- * @param {string} cid
- * @returns {string}
- */
-export function formatCid(cid) {
-  if (!cid) return ''
-  if (cid.length <= 16) return cid
-  return `${cid.slice(0, 8)}...${cid.slice(-6)}`
-}
 
 /**
  * Formats relative time (e.g. '2 hours ago')

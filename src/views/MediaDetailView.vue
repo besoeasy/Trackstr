@@ -115,12 +115,28 @@ watch(() => route.params.contentId, async () => {
   mediaStore.fetchMediaDetails(contentId.value)
 })
 
+// Direct URL / bookmark navigation starts with a 'Loading...' placeholder
+// title. When fetchMediaDetails() populates the library from Nostr events,
+// merge the real name/title in so the page (and TvEpisodeTracker) can render.
+watch(
+  () => mediaStore.mediaLibrary[contentId.value],
+  (stored) => {
+    if (!stored || !stored.name && !stored.title) return
+    if (media.value.title === 'Loading...' || !media.value.title) {
+      media.value = { ...media.value, ...stored }
+    }
+  }
+)
+
 async function loadMediaData() {
   const myToken = ++loadToken
   // Check if we already have it in media library store
   const stored = mediaStore.mediaLibrary[contentId.value]
   if (stored) {
-    media.value = { ...media.value, ...stored }
+    // Episode records fold into their parent show; a stale type 'episode'
+    // cache entry must never hide the show's episode tracker or type badge.
+    const storedView = stored.type === 'episode' ? { ...stored, type: 'show' } : stored
+    media.value = { ...media.value, ...storedView }
   }
 
   // Fetch Multi-Source Rich Details (TMDB + TVMaze) for movies & shows
@@ -309,7 +325,18 @@ async function submitCheckIn() {
     if (media.value.type === 'show') {
       const ep = parseEpisodeProgress(checkInProgress.value)
       if (ep) {
-        entry = { ...media.value, type: 'episode', season: ep.season, episode: ep.episode }
+        // Match TvEpisodeTracker's episode naming so the same episode tracked
+        // from either surface publishes an identical `name` tag on Nostr.
+        const showTitle = media.value.title || media.value.name || 'Show'
+        const epName = `${showTitle} - S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`
+        entry = {
+          ...media.value,
+          type: 'episode',
+          season: ep.season,
+          episode: ep.episode,
+          name: epName,
+          title: epName,
+        }
         progressText = `s${ep.season}e${ep.episode}`
       }
     }

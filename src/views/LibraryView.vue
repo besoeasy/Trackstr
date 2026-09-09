@@ -65,16 +65,20 @@ async function handleDelete(item) {
 
   actionError.value = ''
   try {
-    // Delete both the status (35402) and the rating (35400) sharing this
-    // d-tag so no orphaned half of the record survives on relays.
+    // Delete the status (35402) sharing this d-tag.
     await mediaStore.deleteTrackstrEvent({
       coordinate: `35402:${authStore.pubkey}:${item.dTag}`,
       reason: 'Removed from library',
     })
-    await mediaStore.deleteTrackstrEvent({
-      coordinate: `35400:${authStore.pubkey}:${item.dTag}`,
-      reason: 'Removed from library',
-    })
+    // Only emit a rating (35400) deletion if the viewer actually rated this
+    // item — otherwise we'd publish a pointless NIP-09 event for nothing.
+    const rated = mediaStore.getMediaRating(item.contentId, item.media?.season, item.media?.episode)
+    if (rated !== null && rated !== undefined) {
+      await mediaStore.deleteTrackstrEvent({
+        coordinate: `35400:${authStore.pubkey}:${item.dTag}`,
+        reason: 'Removed from library',
+      })
+    }
   } catch (err) {
     actionError.value = err.message || 'Failed to delete item.'
   }

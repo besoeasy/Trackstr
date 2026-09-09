@@ -15,10 +15,6 @@ const safeAvatar = computed(() => safeMediaUrl(authStore.avatarUrl))
 
 const showUserMenu = ref(false)
 
-function handleLogin() {
-  router.push('/connect')
-}
-
 function handleLogout() {
   authStore.logout()
   showUserMenu.value = false

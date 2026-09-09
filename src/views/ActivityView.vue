@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
-import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
+import { formatRelativeTime, formatStatus } from '@/utils/formatters.js'
 
 const router = useRouter()
 const mediaStore = useMediaStore()

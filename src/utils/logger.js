@@ -5,7 +5,6 @@
 
 const MAX_LOGS = 100
 const logsBuffer = []
-const listeners = new Set()
 
 // Scrub session secrets / API keys out of anything that reaches the log
 // buffer, clipboard export, or browser console. Hex pubkeys are public by
@@ -46,23 +45,17 @@ export function addLog(level, tag, message, data = null) {
     logsBuffer.shift()
   }
 
-  // Notify UI subscribers
-  listeners.forEach((fn) => {
-    try {
-      fn(entry)
-    } catch {}
-  })
-
-  // Also output to browser console
+  // Also output to browser console — always the redacted forms so secrets
+  // never reach the console even if they reach the buffer.
   const consolePrefix = `[${entry.timestamp}] [${tag}]`
   if (level === 'error') {
-    console.error(consolePrefix, message, data || '')
+    console.error(consolePrefix, entry.message, entry.data || '')
   } else if (level === 'warn') {
-    console.warn(consolePrefix, message, data || '')
+    console.warn(consolePrefix, entry.message, entry.data || '')
   } else if (level === 'debug') {
-    console.debug(consolePrefix, message, data || '')
+    console.debug(consolePrefix, entry.message, entry.data || '')
   } else {
-    console.log(consolePrefix, message, data || '')
+    console.log(consolePrefix, entry.message, entry.data || '')
   }
 
   return entry
@@ -73,24 +66,6 @@ export const logger = {
   warn: (tag, msg, data) => addLog('warn', tag, msg, data),
   error: (tag, msg, data) => addLog('error', tag, msg, data),
   debug: (tag, msg, data) => addLog('debug', tag, msg, data),
-}
-
-export function getLogs() {
-  return [...logsBuffer]
-}
-
-export function clearLogs() {
-  logsBuffer.length = 0
-  listeners.forEach((fn) => {
-    try {
-      fn(null)
-    } catch {}
-  })
-}
-
-export function subscribeLogs(fn) {
-  listeners.add(fn)
-  return () => listeners.delete(fn)
 }
 
 function getCircularReplacer() {

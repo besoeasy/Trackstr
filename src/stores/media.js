@@ -134,6 +134,24 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Episode records fold into their parent show: they share the show's
+   * contentId, so storing them raw in mediaLibrary would clobber the show's
+   * type with 'episode' and break the show's detail page. Store a show-level
+   * view instead, stripping the " - S01E01: ..." suffix from the name.
+   */
+  function toShowLevel(episodeMedia) {
+    const name = String(episodeMedia.name || episodeMedia.title || '').replace(/\s+-\s+S\d+E\d+:.*$/i, '')
+    return {
+      ...episodeMedia,
+      type: 'show',
+      name,
+      title: name,
+      season: undefined,
+      episode: undefined,
+    }
+  }
+
+  /**
    * Ingests a raw Nostr event into our state
    */
   function ingestEvent(evt) {
@@ -152,7 +170,7 @@ export const useMediaStore = defineStore('media', () => {
     const authorKey = `${evt.pubkey || 'unknown'}:${dTag}`
 
     if (media.contentId && !mediaLibrary.value[media.contentId]) {
-      mediaLibrary.value[media.contentId] = media
+      mediaLibrary.value[media.contentId] = media.type === 'episode' ? toShowLevel(media) : media
     }
     if (media.contentId) {
       // Record Nostr provenance so Nostr-only surfaces can distinguish
