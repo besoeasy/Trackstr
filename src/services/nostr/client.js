@@ -381,9 +381,21 @@ class NostrClient {
    */
   subscribe(filters, callbacks, customRelays, timeoutMs) {
     const relays = customRelays || this.getRelays()
-    logger.debug('NostrClient', 'Starting subscription with filters:', filters)
+    const filterList = Array.isArray(filters) ? filters : [filters]
+    logger.debug('NostrClient', 'Starting subscription with filters:', filterList)
 
-    const sub = this.pool.subscribeMany(relays, filters, {
+    // nostr-tools 2.x subscribeMany takes a SINGLE filter object; passing an
+    // array produces a malformed REQ (["REQ", id, [filter]]) that relays
+    // reject. Build flattened per-relay requests for subscribeMap instead so
+    // multiple filters are sent as separate REQ args.
+    const requests = []
+    for (const url of relays) {
+      for (const f of filterList) {
+        requests.push({ url, filter: f })
+      }
+    }
+
+    const sub = this.pool.subscribeMap(requests, {
       onevent(evt) {
         callbacks.onEvent?.(evt)
       },
@@ -449,7 +461,17 @@ class NostrClient {
       timer = setTimeout(done, timeoutMs)
 
       try {
-        sub = this.pool.subscribeMany(relays, filters, {
+        // nostr-tools 2.x subscribeMany takes a SINGLE filter object; passing
+        // an array produces a malformed REQ (["REQ", id, [filter]]) that
+        // relays reject. Use subscribeMap with flattened per-relay requests so
+        // multiple filters are sent as separate REQ args.
+        const requests = []
+        for (const url of relays) {
+          for (const f of filters) {
+            requests.push({ url, filter: f })
+          }
+        }
+        sub = this.pool.subscribeMap(requests, {
           onevent(evt) {
             if (evt && !seenIds.has(evt.id)) {
               seenIds.add(evt.id)

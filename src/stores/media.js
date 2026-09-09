@@ -440,12 +440,21 @@ export const useMediaStore = defineStore('media', () => {
    */
   async function fetchRecentFeed(limit = 25) {
     try {
-      const events = await nostrClient.queryEvents({
-        kinds: [KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
-        limit,
-      })
+      // Query activity and deletion notices separately so a burst of
+      // NIP-09 deletions never consumes the shared limit and crowds out
+      // the actual reviews/check-ins the feed is meant to render.
+      const [events, deletions] = await Promise.all([
+        nostrClient.queryEvents({
+          kinds: [KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+          limit,
+        }),
+        nostrClient.queryEvents({
+          kinds: [KINDS.DELETION],
+          limit: 100,
+        }),
+      ])
 
-      ingestBatch(events)
+      ingestBatch([...events, ...deletions])
       saveToLocalStorage()
       // Deletion notices are applied, never rendered as feed items.
       return events.filter((evt) => evt && evt.kind !== KINDS.DELETION)
@@ -464,26 +473,34 @@ export const useMediaStore = defineStore('media', () => {
    */
   async function fetchPopularMediaFromEvents({ limit = 24, type = null } = {}) {
     try {
-      // Query events from relays across all Trackstr kinds
-      const events = await nostrClient.queryEvents(
-        [
-          {
-            kinds: [
-              KINDS.STATUS,
-              KINDS.RATING,
-              KINDS.REVIEW,
-              KINDS.ACTIVITY_LOG,
-              KINDS.MEDIA_METADATA,
-              KINDS.DELETION,
-            ],
-            limit: 80,
-          },
-        ],
-        undefined,
-        4500
-      )
+      // Query media events and deletion notices separately so a burst of
+      // NIP-09 deletions never consumes the shared limit and crowds out
+      // the status/rating/review/scrobble events that rank popularity.
+      const [events, deletions] = await Promise.all([
+        nostrClient.queryEvents(
+          [
+            {
+              kinds: [
+                KINDS.STATUS,
+                KINDS.RATING,
+                KINDS.REVIEW,
+                KINDS.ACTIVITY_LOG,
+                KINDS.MEDIA_METADATA,
+              ],
+              limit: 80,
+            },
+          ],
+          undefined,
+          4500
+        ),
+        nostrClient.queryEvents(
+          [{ kinds: [KINDS.DELETION], limit: 100 }],
+          undefined,
+          4500
+        ),
+      ])
 
-      ingestBatch(events)
+      ingestBatch([...events, ...deletions])
       saveToLocalStorage()
 
       // Aggregate mentions: every relay event counts exactly once, grouped
