@@ -41,8 +41,7 @@ function handleLogout() {
       </router-link>
 
       <nav class="nav-links">
-        <router-link to="/" class="nav-link">Explore</router-link>
-        <router-link to="/search" class="nav-link">Search</router-link>
+        <router-link to="/" class="nav-link">Explore & Search</router-link>
         <router-link v-if="authStore.isAuthenticated" to="/library" class="nav-link">
           My Library
         </router-link>

@@ -14,7 +14,7 @@ const routes = [
   {
     path: '/search',
     name: 'search',
-    component: SearchView,
+    component: HomeView,
   },
   {
     path: '/media/:contentId',

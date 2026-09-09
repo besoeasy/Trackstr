@@ -10,7 +10,9 @@ import {
   buildActivityLogEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
-import { buildDTag } from '@/utils/contentId.js'
+import { buildDTag, computeContentId } from '@/utils/contentId.js'
+import { SAMPLE_MEDIA } from '@/services/api/tmdb.js'
+import { SAMPLE_MUSIC } from '@/services/api/musicbrainz.js'
 import { useAuthStore } from './auth.js'
 
 const LOCAL_STORAGE_KEY = 'trackstr_media_cache'
@@ -261,6 +263,122 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Fetches and ranks popular & featured media directly from Nostr events
+   * @param {Object} [options]
+   * @param {number} [options.limit=24]
+   * @param {'movie'|'show'|'music'|null} [options.type=null]
+   * @returns {Promise<Array<Object>>}
+   */
+  async function fetchPopularMediaFromEvents({ limit = 24, type = null } = {}) {
+    try {
+      // Query events from relays across all Trackstr kinds
+      const events = await nostrClient.queryEvents(
+        [
+          {
+            kinds: [
+              KINDS.STATUS,
+              KINDS.RATING,
+              KINDS.REVIEW,
+              KINDS.ACTIVITY_LOG,
+              KINDS.MEDIA_METADATA,
+            ],
+            limit: 80,
+          },
+        ],
+        undefined,
+        4500
+      )
+
+      events.forEach((evt) => ingestEvent(evt))
+      saveToLocalStorage()
+
+      // Aggregate all known media items and calculate popularity based on event mentions
+      const mentionCounts = new Map()
+      const latestTimes = new Map()
+
+      events.forEach((evt) => {
+        const getTag = (name) => evt.tags.find((t) => t[0] === name)?.[1]
+        const cId = getTag('contentid') || getTag('d')
+        if (cId) {
+          const baseContentId = cId.split(':')[0]
+          mentionCounts.set(baseContentId, (mentionCounts.get(baseContentId) || 0) + 1)
+          if (!latestTimes.has(baseContentId) || evt.created_at > latestTimes.get(baseContentId)) {
+            latestTimes.set(baseContentId, evt.created_at)
+          }
+        }
+      })
+
+      // Also count from local stored statuses, ratings, reviews, logs
+      Object.values(statuses.value).forEach((s) => {
+        if (s.contentId) {
+          mentionCounts.set(s.contentId, (mentionCounts.get(s.contentId) || 0) + 2)
+        }
+      })
+      reviews.value.forEach((r) => {
+        if (r.contentId) {
+          mentionCounts.set(r.contentId, (mentionCounts.get(r.contentId) || 0) + 2)
+        }
+      })
+      activityLogs.value.forEach((a) => {
+        if (a.contentId) {
+          mentionCounts.set(a.contentId, (mentionCounts.get(a.contentId) || 0) + 1)
+        }
+      })
+
+      // Get all known media items from state
+      const allKnown = getKnownMediaFromEvents(type)
+
+      // Attach mentionCount and sort by popularity (then by latest time)
+      const ranked = allKnown.map((item) => {
+        const count = mentionCounts.get(item.contentId) || 0
+        const latestTime = latestTimes.get(item.contentId) || 0
+        return {
+          ...item,
+          nostrEventCount: count,
+          latestActivityAt: latestTime,
+        }
+      })
+
+      ranked.sort((a, b) => {
+        if (b.nostrEventCount !== a.nostrEventCount) {
+          return b.nostrEventCount - a.nostrEventCount
+        }
+        return (b.latestActivityAt || 0) - (a.latestActivityAt || 0)
+      })
+
+      // If fewer than limit, blend in curated sample items so user never sees an empty grid
+      if (ranked.length < limit) {
+        const samplesToConsider = [...SAMPLE_MEDIA, ...SAMPLE_MUSIC].filter(
+          (s) => !type || s.type === type
+        )
+
+        for (const sample of samplesToConsider) {
+          if (ranked.length >= limit) break
+          const { contentId } = await computeContentId({
+            type: sample.type,
+            title: sample.title,
+            year: sample.year,
+            artist: sample.artist,
+          })
+
+          if (!ranked.some((r) => r.contentId === contentId)) {
+            ranked.push({
+              ...sample,
+              contentId,
+              nostrEventCount: mentionCounts.get(contentId) || 0,
+            })
+          }
+        }
+      }
+
+      return ranked.slice(0, limit)
+    } catch (err) {
+      console.warn('Failed to fetch popular media from Nostr events:', err)
+      return getKnownMediaFromEvents(type).slice(0, limit)
+    }
+  }
+
+  /**
    * Sets media watch/listening status (Kind 35402) and creates an immutable check-in log (Kind 5402)
    */
   async function setStatus(media, status, progress = '', note = '') {
@@ -500,6 +618,7 @@ export const useMediaStore = defineStore('media', () => {
     syncUserData,
     fetchMediaDetails,
     fetchRecentFeed,
+    fetchPopularMediaFromEvents,
     setStatus,
     setRating,
     addReview,
