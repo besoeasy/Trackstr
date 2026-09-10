@@ -4,6 +4,7 @@ import {
   searchMusic,
   searchItunesTracks,
   searchItunesAlbums,
+  searchItunesByArtist,
   searchMusicBrainz,
   searchAudius,
   getMusicDetails,
@@ -176,6 +177,66 @@ describe('Music API multi-provider service', () => {
       const results = await searchMusic('karan aujla boyfriend')
       expect(results).toHaveLength(1)
       expect(results[0].title).toBe('Boyfriend')
+      expect(results[0].sources).toContain('iTunes')
+    })
+  })
+
+  describe('searchItunesByArtist()', () => {
+    it('discovers tracks by resolving artist first then matching discography', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url) => {
+        const u = String(url)
+        if (u.includes('entity=musicArtist')) {
+          return {
+            ok: true,
+            json: async () => ({
+              resultCount: 1,
+              results: [
+                {
+                  wrapperType: 'artist',
+                  artistName: 'Addy Nagar',
+                  artistId: 1123627240,
+                },
+              ],
+            }),
+          }
+        }
+        if (u.includes('lookup?id=1123627240')) {
+          return {
+            ok: true,
+            json: async () => ({
+              resultCount: 2,
+              results: [
+                {
+                  wrapperType: 'track',
+                  trackId: 1783301802,
+                  artistName: 'Addy Nagar',
+                  trackName: 'No Guts No Glory',
+                  collectionName: 'No Guts No Glory - Single',
+                  artworkUrl100: 'https://img.itunes.com/100x100bb.jpg',
+                  releaseDate: '2024-12-10T00:00:00Z',
+                  primaryGenreName: 'Alternative Rap',
+                },
+                {
+                  wrapperType: 'track',
+                  trackId: 1640457326,
+                  artistName: 'Addy Nagar',
+                  trackName: 'Naach',
+                  collectionName: 'Naach - Single',
+                  artworkUrl100: 'https://img.itunes.com/100x100bb.jpg',
+                  releaseDate: '2019-11-12T00:00:00Z',
+                  primaryGenreName: 'Indian Pop',
+                },
+              ],
+            }),
+          }
+        }
+        return { ok: true, json: async () => ({ results: [] }) }
+      }))
+
+      const results = await searchItunesByArtist('no guts no glory addy nagar')
+      expect(results.length).toBeGreaterThanOrEqual(1)
+      expect(results[0].title).toBe('No Guts No Glory')
+      expect(results[0].artist).toBe('Addy Nagar')
       expect(results[0].sources).toContain('iTunes')
     })
   })

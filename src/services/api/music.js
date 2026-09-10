@@ -32,52 +32,145 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
 }
 
 /**
+/**
+ * Normalizes an iTunes raw track object to the standard Trackstr format
+ */
+export function normalizeItunesTrack(r) {
+  const rawArtwork = r.artworkUrl100 || r.artworkUrl60 || ''
+  const poster = rawArtwork ? rawArtwork.replace(/100x100bb\./, '600x600bb.') : ''
+  const banner = rawArtwork ? rawArtwork.replace(/100x100bb\./, '1000x1000bb.') : ''
+  const year = (r.releaseDate || '').slice(0, 4)
+
+  return {
+    type: 'music',
+    id: `itunes-track-${r.trackId}`,
+    title: r.trackName,
+    name: r.trackName,
+    artist: r.artistName,
+    album: r.collectionName || '',
+    year,
+    overview: r.collectionName
+      ? `Track from album "${r.collectionName}" by ${r.artistName}`
+      : `Song by ${r.artistName}`,
+    poster,
+    banner,
+    genres: r.primaryGenreName ? [r.primaryGenreName] : [],
+    sources: ['iTunes'],
+    previewUrl: r.previewUrl || '',
+    popularity: 85,
+  }
+}
+
+/**
  * Searches iTunes / Apple Music for tracks (songs)
  * @param {string} query
  * @returns {Promise<Array<Object>>}
  */
 export async function searchItunesTracks(query) {
   if (!query || !query.trim()) return []
+  const trimmed = query.trim()
 
-  try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query.trim())}&entity=song&limit=15`
-    const res = await fetchWithTimeout(url)
-    if (!res.ok) return []
-
-    const data = await res.json()
-    const results = data.results || []
-
-    return results
-      .filter((r) => r.trackName && r.artistName)
-      .map((r) => {
-        const rawArtwork = r.artworkUrl100 || r.artworkUrl60 || ''
-        const poster = rawArtwork ? rawArtwork.replace(/100x100bb\./, '600x600bb.') : ''
-        const banner = rawArtwork ? rawArtwork.replace(/100x100bb\./, '1000x1000bb.') : ''
-        const year = (r.releaseDate || '').slice(0, 4)
-
-        return {
-          type: 'music',
-          id: `itunes-track-${r.trackId}`,
-          title: r.trackName,
-          name: r.trackName,
-          artist: r.artistName,
-          album: r.collectionName || '',
-          year,
-          overview: r.collectionName
-            ? `Track from album "${r.collectionName}" by ${r.artistName}`
-            : `Song by ${r.artistName}`,
-          poster,
-          banner,
-          genres: r.primaryGenreName ? [r.primaryGenreName] : [],
-          sources: ['iTunes'],
-          previewUrl: r.previewUrl || '',
-          popularity: 85,
-        }
-      })
-  } catch (err) {
-    console.warn('iTunes track search failed:', err?.message || err)
-    return []
+  const termsToSearch = [trimmed]
+  if (/\s+by\s+/i.test(trimmed)) {
+    const parts = trimmed.split(/\s+by\s+/i)
+    if (parts[0]) termsToSearch.push(parts[0].trim())
   }
+  if (/\s+-\s+/.test(trimmed)) {
+    const parts = trimmed.split(/\s+-\s+/)
+    if (parts[1]) termsToSearch.push(parts[1].trim())
+  }
+
+  const results = []
+  const seenTrackIds = new Set()
+
+  for (const term of termsToSearch) {
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=30`
+      const res = await fetchWithTimeout(url)
+      if (!res.ok) continue
+
+      const data = await res.json()
+      const list = data.results || []
+
+      for (const r of list) {
+        if (!r.trackId || seenTrackIds.has(r.trackId) || !r.trackName || !r.artistName) continue
+        seenTrackIds.add(r.trackId)
+        results.push(normalizeItunesTrack(r))
+      }
+    } catch (err) {
+      console.warn('iTunes track search failed:', err?.message || err)
+    }
+  }
+
+  return results
+}
+
+/**
+ * Discovers tracks by first identifying artist candidates via iTunes musicArtist search,
+ * then looking up their discography and matching track titles.
+ * Bypasses iTunes fuzzy search failures on multi-token indie queries (e.g. "no guts no glory addy nagar").
+ * @param {string} query
+ * @returns {Promise<Array<Object>>}
+ */
+export async function searchItunesByArtist(query) {
+  if (!query || !query.trim()) return []
+  const trimmed = query.trim()
+
+  const candidates = [trimmed]
+  if (/\s+by\s+/i.test(trimmed)) {
+    const parts = trimmed.split(/\s+by\s+/i)
+    if (parts[1]) candidates.push(parts[1].trim())
+  }
+  if (/\s+-\s+/.test(trimmed)) {
+    const parts = trimmed.split(/\s+-\s+/)
+    if (parts[0]) candidates.push(parts[0].trim())
+    if (parts[1]) candidates.push(parts[1].trim())
+  }
+
+  const results = []
+  const seenArtistIds = new Set()
+  const seenTrackIds = new Set()
+
+  for (const cand of candidates) {
+    if (!cand) continue
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(cand)}&entity=musicArtist&limit=3`
+      const res = await fetchWithTimeout(url)
+      if (!res.ok) continue
+      const data = await res.json()
+      const artists = data.results || []
+
+      for (const artist of artists) {
+        if (!artist.artistId || seenArtistIds.has(artist.artistId)) continue
+        seenArtistIds.add(artist.artistId)
+
+        const lookupUrl = `https://itunes.apple.com/lookup?id=${artist.artistId}&entity=song&limit=100`
+        const lookupRes = await fetchWithTimeout(lookupUrl)
+        if (!lookupRes.ok) continue
+        const lookupData = await lookupRes.json()
+        const tracks = (lookupData.results || []).filter((r) => r.wrapperType === 'track' && r.trackName)
+
+        // Tokens in query excluding the artist's name
+        const aTokens = artist.artistName.toLowerCase().split(/\s+/).filter(Boolean)
+        const qTokens = trimmed.toLowerCase().split(/\s+/).filter((tok) => !aTokens.includes(tok))
+
+        for (const t of tracks) {
+          if (!t.trackId || seenTrackIds.has(t.trackId)) continue
+          const tLower = t.trackName.toLowerCase()
+          if (qTokens.length > 0) {
+            const hasMatch = qTokens.some((tok) => tLower.includes(tok))
+            if (!hasMatch) continue
+          }
+          seenTrackIds.add(t.trackId)
+          results.push(normalizeItunesTrack(t))
+        }
+      }
+    } catch (err) {
+      console.warn('iTunes artist-driven search failed:', err?.message || err)
+    }
+  }
+
+  return results
 }
 
 /**
@@ -300,6 +393,7 @@ export async function searchMusic(query) {
   const searchPromises = [
     searchItunesTracks(query),
     searchItunesAlbums(query),
+    searchItunesByArtist(query),
     searchMusicBrainz(query),
     searchAudius(query),
   ]
@@ -362,7 +456,48 @@ export async function searchMusic(query) {
     }
   }
 
-  return Array.from(mergedMap.values())
+  // Calculate query relevance to ensure multi-token song+artist queries (e.g. "no guts no glory addy nagar")
+  // place exact track+artist matches at the top of results.
+  const qClean = cleanKey(query)
+  const qTokens = qClean.split(' ').filter(Boolean)
+
+  function calculateRelevance(item) {
+    if (!qTokens.length) return 0
+    const aClean = cleanKey(item.artist)
+    const tClean = cleanKey(item.title)
+
+    let score = 0
+    let matchedArtistTokens = 0
+    let matchedTitleTokens = 0
+
+    for (const tok of qTokens) {
+      if (aClean.includes(tok)) matchedArtistTokens += 1
+      if (tClean.includes(tok)) matchedTitleTokens += 1
+      if (aClean.includes(tok) || tClean.includes(tok)) score += 10
+    }
+
+    // High boost when both artist and title are found in query tokens
+    if (matchedArtistTokens > 0 && matchedTitleTokens > 0) {
+      score += 1000
+    }
+
+    // Exact full query match
+    if (`${tClean} ${aClean}` === qClean || `${aClean} ${tClean}` === qClean) {
+      score += 1500
+    }
+
+    // Exact title or artist match
+    if (tClean === qClean) score += 500
+    if (aClean === qClean) score += 300
+
+    return score
+  }
+
+  return Array.from(mergedMap.values()).sort((a, b) => {
+    const relDiff = calculateRelevance(b) - calculateRelevance(a)
+    if (relDiff !== 0) return relDiff
+    return (b.popularity || 0) - (a.popularity || 0)
+  })
 }
 
 /**
