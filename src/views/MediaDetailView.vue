@@ -142,6 +142,11 @@ const mediaActivity = computed(() => {
   return mediaStore.getActivityForMedia(contentId.value)
 })
 
+// Community average score from Nostr signals (Kind 35400 + Kind 5401 ratings)
+const nostrAvgRating = computed(() => {
+  return mediaStore.getAverageRatingForMedia(contentId.value)
+})
+
 const { src: posterSrc, onError: onPosterError } = useIpfsImage(() => {
   return communityMeta.value?.poster || media.value.poster || ''
 })
@@ -792,6 +797,20 @@ function goBack() {
             </button>
           </div>
 
+          <!-- Community average score from Nostr events (Kind 35400 + 5401) -->
+          <div class="nostr-avg-row">
+            <span
+              v-if="nostrAvgRating"
+              class="badge badge-nostr-avg"
+              :title="`Nostr community average from ${nostrAvgRating.ratingsCount} rating${nostrAvgRating.ratingsCount === 1 ? '' : 's'} (Kind 35400) + ${nostrAvgRating.reviewsCount} review score${nostrAvgRating.reviewsCount === 1 ? '' : 's'} (Kind 5401)`"
+            >
+              ★ {{ nostrAvgRating.average }}/10 Nostr Avg · {{ nostrAvgRating.count }} vote{{ nostrAvgRating.count === 1 ? '' : 's' }}
+            </span>
+            <span v-else class="nostr-avg-empty">
+              No Nostr ratings yet — be the first to score it above.
+            </span>
+          </div>
+
           <!-- Interactive Tracking Action Bar -->
           <div class="action-panel card">
             <div class="action-row">
@@ -1291,8 +1310,28 @@ function goBack() {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.nostr-avg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 32px;
   flex-wrap: wrap;
+}
+
+.badge-nostr-avg {
+  background: rgba(245, 166, 35, 0.08);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  font-weight: 600;
+}
+
+.nostr-avg-empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
 }
 
 /* Minimalist Action Panel */

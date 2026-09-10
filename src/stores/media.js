@@ -782,6 +782,53 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Community average score for a media item, computed from Nostr signals:
+   * - Mutable current scores (Kind 35400, one per author/d-tag, latest wins)
+   * - Immutable review scores (Kind 5401 `rating` tags, permanent history)
+   * Episode-anchored records fold into their parent show via base contentId.
+   * Math per AGENTS.md: sum(ratings) / count(ratings) on the 1–10 scale.
+   * @param {string} contentId
+   * @returns {{ average: number, count: number, ratingsCount: number, reviewsCount: number } | null}
+   */
+  function getAverageRatingForMedia(contentId) {
+    if (!contentId) return null
+    const base = String(contentId).split(':')[0].toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(base)) return null
+    const scores = []
+    let ratingsCount = 0
+    let reviewsCount = 0
+
+    for (const entry of Object.values(ratings.value)) {
+      const entryBase = String(entry?.contentId || entry?.dTag || '').split(':')[0].toLowerCase()
+      if (entryBase !== base) continue
+      const n = Number(entry?.rating)
+      if (Number.isFinite(n) && n >= 1 && n <= 10) {
+        scores.push(n)
+        ratingsCount += 1
+      }
+    }
+
+    for (const rev of reviews.value) {
+      const revBase = String(rev?.contentId || '').split(':')[0].toLowerCase()
+      if (revBase !== base) continue
+      const n = Number(rev?.rating)
+      if (Number.isFinite(n) && n >= 1 && n <= 10) {
+        scores.push(n)
+        reviewsCount += 1
+      }
+    }
+
+    if (scores.length === 0) return null
+    const sum = scores.reduce((a, b) => a + b, 0)
+    return {
+      average: Math.round((sum / scores.length) * 10) / 10,
+      count: scores.length,
+      ratingsCount,
+      reviewsCount,
+    }
+  }
+
+  /**
    * Discovers all known seasons & episodes for a media item from local state & Nostr events.
    * Includes Season 0 (Specials) and user-added episodes.
    * Enables decentralized crowd-sourced episode map without needing external catalog APIs.
@@ -1195,6 +1242,7 @@ export const useMediaStore = defineStore('media', () => {
     getMediaMetadata,
     getReviewsForMedia,
     getActivityForMedia,
+    getAverageRatingForMedia,
     getDiscoveredEpisodesForMedia,
     cacheMediaItem,
     getKnownMediaFromEvents,
