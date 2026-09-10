@@ -147,6 +147,28 @@ const nostrAvgRating = computed(() => {
   return mediaStore.getAverageRatingForMedia(contentId.value)
 })
 
+// External search shortcuts: title + year → Google, title + year + trailer → YouTube
+const searchQueryBase = computed(() => {
+  const title = (media.value.title || media.value.name || route.query.title || '').trim()
+  const year = (media.value.year || route.query.year || '').toString().trim()
+  const artist = (media.value.artist || route.query.artist || '').trim()
+  const parts = [title]
+  // Music identity includes the artist — keep it so searches disambiguate covers.
+  if (media.value.type === 'music' && artist) parts.push(artist)
+  if (year) parts.push(year)
+  return parts.filter(Boolean).join(' ').trim()
+})
+
+const googleSearchUrl = computed(() => {
+  if (!searchQueryBase.value) return ''
+  return `https://www.google.com/search?q=${encodeURIComponent(searchQueryBase.value)}`
+})
+
+const youtubeSearchUrl = computed(() => {
+  if (!searchQueryBase.value) return ''
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${searchQueryBase.value} trailer`)}`
+})
+
 const { src: posterSrc, onError: onPosterError } = useIpfsImage(() => {
   return communityMeta.value?.poster || media.value.poster || ''
 })
@@ -811,6 +833,28 @@ function goBack() {
             </span>
           </div>
 
+          <!-- External search shortcuts -->
+          <div v-if="searchQueryBase" class="external-search-row">
+            <a
+              class="btn btn-outline btn-sm"
+              :href="googleSearchUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`Search Google for ${searchQueryBase}`"
+            >
+              🔍 Google
+            </a>
+            <a
+              class="btn btn-outline btn-sm"
+              :href="youtubeSearchUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`Search YouTube for ${searchQueryBase} trailer`"
+            >
+              ▶️ Trailer
+            </a>
+          </div>
+
           <!-- Interactive Tracking Action Bar -->
           <div class="action-panel card">
             <div class="action-row">
@@ -1332,6 +1376,19 @@ function goBack() {
 .nostr-avg-empty {
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.external-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+  margin-top: -20px;
+  flex-wrap: wrap;
+}
+
+.external-search-row .btn {
+  text-decoration: none;
 }
 
 /* Minimalist Action Panel */
