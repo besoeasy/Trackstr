@@ -103,6 +103,9 @@ function handleLogout() {
               <router-link to="/library" class="dropdown-item" @click="showUserMenu = false">
                 📚 My Library
               </router-link>
+              <router-link to="/import" class="dropdown-item" @click="showUserMenu = false">
+                📥 Import Data
+              </router-link>
               <router-link to="/settings" class="dropdown-item" @click="showUserMenu = false">
                 ⚙️ Settings & Relays
               </router-link>

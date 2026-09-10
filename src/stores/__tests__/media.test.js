@@ -320,3 +320,33 @@ describe('follow-preferred community metadata', () => {
     expect(meta?.poster).toBe('ipfs://stranger')
   })
 })
+
+describe('importLocalMedia()', () => {
+  it('instantly populates statuses, ratings, reviews, and media library locally', () => {
+    const { media } = setupStores()
+    const items = [
+      {
+        contentId: CID,
+        type: 'movie',
+        name: 'Fight Club',
+        year: 1999,
+        status: 'completed',
+        rating: 9,
+        review: 'Incredible film',
+        spoiler: false,
+        watchedDate: '2023-01-15',
+      },
+    ]
+
+    media.importLocalMedia(items, OWN)
+
+    expect(media.mediaLibrary[CID]).toBeDefined()
+    expect(media.mediaLibrary[CID].name).toBe('Fight Club')
+    expect(media.statuses[`${OWN}:${CID}`]).toBeDefined()
+    expect(media.statuses[`${OWN}:${CID}`].status).toBe('completed')
+    expect(media.ratings[`${OWN}:${CID}`]).toBeDefined()
+    expect(media.ratings[`${OWN}:${CID}`].rating).toBe(9)
+    expect(media.reviews.length).toBe(1)
+    expect(media.reviews[0].content).toBe('Incredible film')
+  })
+})

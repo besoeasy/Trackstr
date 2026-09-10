@@ -130,6 +130,13 @@ function navigateToItem(contentId, media) {
           <span>+</span>
           <span>Track Media</span>
         </button>
+        <router-link
+          to="/import"
+          class="btn btn-secondary btn-sm"
+          title="Import from Letterboxd or Trakt"
+        >
+          <span>📥 Import</span>
+        </router-link>
         <button
           class="btn btn-secondary btn-sm"
           type="button"
@@ -210,9 +217,14 @@ function navigateToItem(contentId, media) {
       <div v-if="activeTab !== 'reviews'">
         <div v-if="filteredItems.length === 0" class="empty-state card">
           <p>No titles currently in this category.</p>
-          <router-link :to="{ path: '/', query: { track: 'true' } }" class="btn btn-primary btn-sm">
-            🔍 Discover Titles to Track
-          </router-link>
+          <div class="empty-actions">
+            <router-link :to="{ path: '/', query: { track: 'true' } }" class="btn btn-primary btn-sm">
+              🔍 Discover Titles to Track
+            </router-link>
+            <router-link to="/import" class="btn btn-secondary btn-sm">
+              📥 Import from Letterboxd / Trakt
+            </router-link>
+          </div>
         </div>
 
         <div v-else class="library-items-list">
@@ -410,6 +422,20 @@ function navigateToItem(contentId, media) {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+}
+
+.empty-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
 }
 
 .review-top {

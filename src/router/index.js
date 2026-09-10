@@ -7,6 +7,7 @@ import ConnectView from '@/views/ConnectView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import TrackMediaView from '@/views/TrackMediaView.vue'
 import SeedMetadataView from '@/views/SeedMetadataView.vue'
+import ImportView from '@/views/ImportView.vue'
 
 const routes = [
   {
@@ -29,6 +30,12 @@ const routes = [
     path: '/settings',
     name: 'settings',
     component: SettingsView,
+  },
+  {
+    path: '/import',
+    name: 'import',
+    alias: '/sync/import',
+    component: ImportView,
   },
   {
     path: '/track',

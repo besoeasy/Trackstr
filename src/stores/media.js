@@ -881,6 +881,80 @@ export const useMediaStore = defineStore('media', () => {
       .slice(0, 10)
   }
 
+  /**
+   * Directly ingests imported media items into local state for instant rendering.
+   * Enables zero-latency display on /library without waiting for Nostr relay sync.
+   * @param {Array<Object>} items Consolidated media items
+   * @param {string} [pubkey] User pubkey to anchor statuses and ratings
+   */
+  function importLocalMedia(items, pubkey) {
+    const author = pubkey || authStore.pubkey || 'local'
+    const now = Math.floor(Date.now() / 1000)
+
+    for (const item of items) {
+      if (!item?.contentId) continue
+      const contentId = item.contentId
+      const mediaRef = {
+        contentId,
+        type: item.type || 'movie',
+        name: item.name,
+        title: item.name,
+        year: item.year || '',
+      }
+
+      mediaLibrary.value[contentId] = mediaRef
+      nostrContentIds.value[contentId] = 1
+
+      const authorKey = `${author}:${contentId}`
+      const createdAt = item.watchedDate
+        ? Math.floor(new Date(item.watchedDate).getTime() / 1000) || now
+        : now
+
+      if (item.status) {
+        statuses.value[authorKey] = {
+          dTag: contentId,
+          contentId,
+          status: item.status,
+          progress: '',
+          eventId: `import_status_${contentId}`,
+          createdAt,
+          pubkey: author,
+          media: mediaRef,
+        }
+      }
+
+      if (item.rating !== null && item.rating !== undefined) {
+        ratings.value[authorKey] = {
+          dTag: contentId,
+          contentId,
+          rating: item.rating,
+          eventId: `import_rating_${contentId}`,
+          createdAt,
+          pubkey: author,
+          media: mediaRef,
+        }
+      }
+
+      if (item.review && item.review.trim()) {
+        const revId = `import_rev_${contentId}`
+        if (!reviews.value.some((r) => r.id === revId || (r.contentId === contentId && r.pubkey === author))) {
+          reviews.value.unshift({
+            id: revId,
+            contentId,
+            content: item.review.trim(),
+            rating: item.rating,
+            spoiler: !!item.spoiler,
+            createdAt,
+            pubkey: author,
+            media: mediaRef,
+          })
+        }
+      }
+    }
+
+    saveToLocalStorage()
+  }
+
   const trackedItemsList = computed(() => {
     // The library is the viewer's own tracking — never strangers' events.
     if (!authStore.pubkey) return []
@@ -914,6 +988,7 @@ export const useMediaStore = defineStore('media', () => {
     cacheMediaItem,
     getKnownMediaFromEvents,
     searchEventAutocomplete,
+    importLocalMedia,
     trackedItemsList,
   }
 })
