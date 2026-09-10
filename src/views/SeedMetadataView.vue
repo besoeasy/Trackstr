@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { mirrorRemoteUrlToOriginless, uploadToOriginless, resolveIpfsUrl } from '@/services/originless.js'
+import { useIpfsImage } from '@/composables/useIpfsImage.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { useMediaStore } from '@/stores/media.js'
 import { useSettingsStore } from '@/stores/settings.js'
@@ -31,10 +32,10 @@ const mediaType = computed(() => {
   return cachedMedia.value.type || route.query.type || 'movie'
 })
 
-const effectivePoster = computed(() => {
-  const raw = communityMeta.value?.poster || cachedMedia.value.poster || ''
-  return safeMediaUrl(resolveIpfsUrl(raw))
+const { src: posterSrc, onError: onPosterError } = useIpfsImage(() => {
+  return communityMeta.value?.poster || cachedMedia.value.poster || ''
 })
+const effectivePoster = computed(() => safeMediaUrl(posterSrc.value))
 
 const isProcessing = ref(false)
 const stepStatus = ref('')
@@ -199,6 +200,7 @@ onMounted(async () => {
           :src="effectivePoster"
           :alt="mediaTitle"
           class="summary-poster"
+          @error="onPosterError"
         />
         <div v-else class="summary-poster-fallback">
           {{ mediaType === 'music' ? '🎵' : mediaType === 'show' ? '📺' : '🎬' }}

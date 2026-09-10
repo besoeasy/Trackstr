@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { resolveIpfsUrl } from '@/services/originless.js'
+import { useIpfsImage } from '@/composables/useIpfsImage.js'
 import { useMediaStore } from '@/stores/media.js'
 import { formatStatus, getStatusColorClass } from '@/utils/formatters.js'
 
@@ -15,16 +15,10 @@ const props = defineProps({
 const router = useRouter()
 const mediaStore = useMediaStore()
 
-const resolvedPoster = computed(() => {
-  if (!props.media.poster) {
-    // Check if community metadata has poster for this contentId
-    const meta = mediaStore.getMediaMetadata(props.media.contentId)
-    if (meta?.poster) {
-      return resolveIpfsUrl(meta.poster)
-    }
-    return ''
-  }
-  return resolveIpfsUrl(props.media.poster)
+const { src: resolvedPoster, onError: onPosterError } = useIpfsImage(() => {
+  if (props.media.poster) return props.media.poster
+  // Check if community metadata has poster for this contentId
+  return mediaStore.getMediaMetadata(props.media.contentId)?.poster || ''
 })
 
 const userStatus = computed(() => {
@@ -63,7 +57,7 @@ function navigateToDetail() {
         :alt="media.title || media.name"
         class="media-poster"
         loading="lazy"
-        @error="$event.target.style.display = 'none'"
+        @error="onPosterError"
       />
       <div v-else class="media-poster-fallback">
         <span v-if="media.type === 'movie'">🎬</span>

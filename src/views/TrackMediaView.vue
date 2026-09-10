@@ -1,11 +1,11 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { computeContentId, buildDTag } from '@/utils/contentId.js'
 import { formatStatus } from '@/utils/formatters.js'
-import { resolveIpfsUrl } from '@/services/originless.js'
+import { resolveIpfsUrl, IPFS_GATEWAYS } from '@/services/originless.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
@@ -37,6 +37,21 @@ const isSearchingSuggestions = ref(false)
 const isSubmitting = ref(false)
 const errorMsg = ref('')
 let suggestDebounceTimer = null
+
+// Per-suggestion gateway fallback: poster URI -> next gateway index to try
+const failedSuggestionGateways = reactive(new Map())
+
+function suggestionPosterUrl(poster) {
+  if (!poster) return ''
+  const idx = failedSuggestionGateways.get(poster) || 0
+  if (idx >= IPFS_GATEWAYS.length) return ''
+  return resolveIpfsUrl(poster, IPFS_GATEWAYS[idx])
+}
+
+function onSuggestionPosterError(poster) {
+  const idx = (failedSuggestionGateways.get(poster) || 0) + 1
+  failedSuggestionGateways.set(poster, idx)
+}
 
 // Content ID & canonical string calculation
 const canonicalString = ref('')
@@ -357,11 +372,11 @@ onMounted(() => {
               @mousedown.prevent="selectSuggestion(sug)"
             >
               <img
-                v-if="sug.poster"
-                :src="resolveIpfsUrl(sug.poster)"
+                v-if="suggestionPosterUrl(sug.poster)"
+                :src="suggestionPosterUrl(sug.poster)"
                 class="sug-poster"
                 alt=""
-                @error="$event.target.style.display = 'none'"
+                @error="onSuggestionPosterError(sug.poster)"
               />
               <div v-else class="sug-poster-fallback">
                 {{ sug.type === 'music' ? '🎵' : sug.type === 'show' ? '📺' : '🎬' }}

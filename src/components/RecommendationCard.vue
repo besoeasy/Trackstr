@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { resolveIpfsUrl } from '@/services/originless.js'
+import { useIpfsImage } from '@/composables/useIpfsImage.js'
 import { useMediaStore } from '@/stores/media.js'
 
 const props = defineProps({
@@ -16,12 +16,9 @@ const mediaStore = useMediaStore()
 
 const isEpisode = computed(() => props.item.type === 'episode' && props.item.season && props.item.episode)
 
-const resolvedPoster = computed(() => {
-  if (!props.item.poster) {
-    const meta = mediaStore.getMediaMetadata(props.item.contentId)
-    return meta?.poster ? resolveIpfsUrl(meta.poster) : ''
-  }
-  return resolveIpfsUrl(props.item.poster)
+const { src: resolvedPoster, onError: onPosterError } = useIpfsImage(() => {
+  if (props.item.poster) return props.item.poster
+  return mediaStore.getMediaMetadata(props.item.contentId)?.poster || ''
 })
 
 const reasonLabel = computed(() => {
@@ -62,7 +59,7 @@ function navigateToDetail() {
         :alt="item.title || item.name"
         class="rec-poster"
         loading="lazy"
-        @error="$event.target.style.display = 'none'"
+        @error="onPosterError"
       />
       <div v-else class="rec-poster-fallback">
         <span v-if="item.type === 'movie'">🎬</span>

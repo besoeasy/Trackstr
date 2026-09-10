@@ -6,7 +6,21 @@
 import { isSafeHttpUrl } from '@/utils/urls.js'
 
 export const DEFAULT_ORIGINLESS_INSTANCE = 'https://originless.gupt.app'
-export const DEFAULT_IPFS_RESOLVE_GATEWAY = 'https://dweb.link'
+
+// Ordered IPFS gateway fallback chain for resolving ipfs:// URIs at
+// presentation time. The Originless instance is FIRST because content
+// uploaded via Trackstr is pinned there and served directly (HTTP 200,
+// image/jpeg). Public gateways like dweb.link redirect /ipfs/<cid> to a
+// {cid}.ipfs.<host> subdomain, which browsers block for <img> elements
+// (net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin) — so they are fallbacks only.
+export const IPFS_GATEWAYS = [
+  DEFAULT_ORIGINLESS_INSTANCE,
+  'https://ipfs.io',
+  'https://dweb.link',
+]
+
+// Backwards-compatible alias for the primary gateway
+export const DEFAULT_IPFS_RESOLVE_GATEWAY = IPFS_GATEWAYS[0]
 
 /**
  * Resolves an ipfs:// URI or CID to a gateway HTTP URL for presentation

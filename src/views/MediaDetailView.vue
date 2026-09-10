@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { useSettingsStore } from '@/stores/settings.js'
 import { resolveIpfsUrl, mirrorRemoteUrlToOriginless } from '@/services/originless.js'
+import { useIpfsImage } from '@/composables/useIpfsImage.js'
 import { buildDTag } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
@@ -110,15 +111,27 @@ const mediaActivity = computed(() => {
   return mediaStore.getActivityForMedia(contentId.value)
 })
 
-const effectivePoster = computed(() => {
-  const raw = communityMeta.value?.poster || media.value.poster || ''
-  return safeMediaUrl(resolveIpfsUrl(raw))
+const { src: posterSrc, onError: onPosterError } = useIpfsImage(() => {
+  return communityMeta.value?.poster || media.value.poster || ''
+})
+const { src: bannerSrc, onError: onBannerError } = useIpfsImage(() => {
+  return communityMeta.value?.banner || media.value.banner || ''
 })
 
+const effectivePoster = computed(() => safeMediaUrl(posterSrc.value))
+
 const effectiveBanner = computed(() => {
-  const raw = communityMeta.value?.banner || media.value.banner || ''
-  const safe = safeMediaUrl(resolveIpfsUrl(raw))
+  const safe = safeMediaUrl(bannerSrc.value)
   return safe ? `url("${safe}")` : ''
+})
+
+// CSS background-image has no @error event — preload the banner so a failed
+// gateway still advances the fallback chain.
+watch(bannerSrc, (url) => {
+  if (!url) return
+  const img = new Image()
+  img.onerror = onBannerError
+  img.src = url
 })
 
 function safeImg(url) {
@@ -570,6 +583,7 @@ function goBack() {
               :src="effectivePoster"
               :alt="media.title || media.name"
               class="poster-img"
+              @error="onPosterError"
             />
             <div v-else class="poster-placeholder">
               <span v-if="media.type === 'movie'">🎬</span>
