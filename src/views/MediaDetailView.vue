@@ -808,60 +808,6 @@ function goBack() {
                 </div>
               </div>
             </div>
-
-            <div class="action-buttons-row">
-              <button
-                class="btn btn-secondary"
-                type="button"
-                :aria-expanded="showCheckIn"
-                @click="openCheckInModal"
-              >
-                ⏱️ Log Check-in / Scrobble
-              </button>
-            </div>
-
-            <transition name="expand">
-              <div v-if="showCheckIn" class="checkin-inline">
-                <div v-if="checkInError" class="badge badge-danger error-banner">
-                  {{ checkInError }}
-                </div>
-                <div class="checkin-fields">
-                  <label class="checkin-field">
-                    <span class="action-label">Activity</span>
-                    <select v-model="checkInStatus" class="select">
-                      <option v-if="media.type === 'music'" value="listening">Listening Now</option>
-                      <option v-if="media.type === 'music'" value="completed">Finished Album / Track</option>
-                      <option v-if="media.type !== 'music'" value="watching">Watching Now</option>
-                      <option v-if="media.type !== 'music'" value="completed">Finished Watching</option>
-                    </select>
-                  </label>
-                  <label v-if="media.type === 'show'" class="checkin-field">
-                    <span class="action-label">Progress (S01E03)</span>
-                    <input v-model="checkInProgress" type="text" class="input" placeholder="e.g. S01E03" />
-                  </label>
-                  <label class="checkin-field checkin-note">
-                    <span class="action-label">Note (Optional)</span>
-                    <input v-model="checkInNote" type="text" class="input" placeholder="e.g. Rewatched in 4K" />
-                  </label>
-                </div>
-                <p class="form-hint">
-                  Emits a Mutable Status update (Kind 35402) and an Immutable check-in log (Kind 5402).
-                </p>
-                <div class="checkin-actions">
-                  <button class="btn btn-secondary btn-sm" type="button" @click="showCheckIn = false">
-                    Cancel
-                  </button>
-                  <button
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    :disabled="isLoggingCheckIn"
-                    @click="submitCheckIn"
-                  >
-                    {{ isLoggingCheckIn ? 'Logging...' : 'Sign & Log Check-in' }}
-                  </button>
-                </div>
-              </div>
-            </transition>
           </div>
 
           <!-- Inline Review Modal -->
@@ -1008,10 +954,65 @@ function goBack() {
                 Activity Logs & Scrobbles (Kind 5402)
                 <span class="count-badge">{{ mediaActivity.length }}</span>
               </h3>
+              <button
+                class="btn btn-outline btn-sm"
+                type="button"
+                :aria-expanded="showCheckIn"
+                @click="openCheckInModal"
+              >
+                ⏱️ + Log Check-in
+              </button>
             </div>
+
+            <!-- Inline Check-in Form in Activity section -->
+            <transition name="expand">
+              <div v-if="showCheckIn" class="checkin-inline card">
+                <div v-if="checkInError" class="badge badge-danger error-banner">
+                  {{ checkInError }}
+                </div>
+                <div class="checkin-fields">
+                  <label class="checkin-field">
+                    <span class="action-label">Activity</span>
+                    <select v-model="checkInStatus" class="select">
+                      <option v-if="media.type === 'music'" value="listening">Listening Now</option>
+                      <option v-if="media.type === 'music'" value="completed">Finished Album / Track</option>
+                      <option v-if="media.type !== 'music'" value="watching">Watching Now</option>
+                      <option v-if="media.type !== 'music'" value="completed">Finished Watching</option>
+                    </select>
+                  </label>
+                  <label v-if="media.type === 'show'" class="checkin-field">
+                    <span class="action-label">Progress (S01E03)</span>
+                    <input v-model="checkInProgress" type="text" class="input" placeholder="e.g. S01E03" />
+                  </label>
+                  <label class="checkin-field checkin-note">
+                    <span class="action-label">Note (Optional)</span>
+                    <input v-model="checkInNote" type="text" class="input" placeholder="e.g. Rewatched in 4K" />
+                  </label>
+                </div>
+                <p class="form-hint">
+                  Emits a Mutable Status update (Kind 35402) and an Immutable check-in log (Kind 5402).
+                </p>
+                <div class="checkin-actions">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showCheckIn = false">
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="isLoggingCheckIn"
+                    @click="submitCheckIn"
+                  >
+                    {{ isLoggingCheckIn ? 'Logging...' : 'Sign & Log Check-in' }}
+                  </button>
+                </div>
+              </div>
+            </transition>
 
             <div v-if="mediaActivity.length === 0" class="empty-community card">
               <p>No activity logs recorded yet for this title.</p>
+              <button class="btn btn-outline btn-sm" type="button" @click="openCheckInModal">
+                Log your first check-in
+              </button>
             </div>
 
             <div v-else class="activity-list">
@@ -1308,14 +1309,6 @@ function goBack() {
   letter-spacing: 0.05em;
 }
 
-.action-buttons-row {
-  display: flex;
-  gap: 12px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
-}
-
 /* Inline review modal */
 .modal-overlay {
   position: fixed;
@@ -1419,16 +1412,6 @@ function goBack() {
     min-width: 100%;
   }
 
-  .action-buttons-row {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .action-buttons-row .btn {
-    width: 100%;
-    justify-content: center;
-  }
-
   .media-title {
     font-size: 2rem;
   }
@@ -1498,12 +1481,14 @@ function goBack() {
 }
 
 .checkin-inline {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px dashed var(--border-subtle);
+  margin: 16px 0 20px;
+  padding: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .checkin-inline .error-banner {
