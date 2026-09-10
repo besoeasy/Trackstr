@@ -601,7 +601,7 @@ watch(
         <template v-else>
           <div v-if="recommendations.movies.length" class="recommendation-row">
             <h3 class="recommendation-row-title">🎬 Movies</h3>
-            <div class="recommendation-scroll">
+            <div class="recommendation-grid">
               <RecommendationCard
                 v-for="item in recommendations.movies.slice(0, 5)"
                 :key="item.contentId"
@@ -612,7 +612,7 @@ watch(
 
           <div v-if="recommendations.series.length" class="recommendation-row">
             <h3 class="recommendation-row-title">📺 Series</h3>
-            <div class="recommendation-scroll">
+            <div class="recommendation-grid">
               <RecommendationCard
                 v-for="item in recommendations.series.slice(0, 5)"
                 :key="`${item.contentId}:s${item.season || 0}e${item.episode || 0}`"
@@ -623,7 +623,7 @@ watch(
 
           <div v-if="recommendations.music.length" class="recommendation-row">
             <h3 class="recommendation-row-title">🎵 Music</h3>
-            <div class="recommendation-scroll">
+            <div class="recommendation-grid">
               <RecommendationCard
                 v-for="item in recommendations.music.slice(0, 5)"
                 :key="item.contentId"
@@ -938,7 +938,8 @@ watch(
 
 /* Recommended for You (3 rows) */
 .recommendation-row {
-  margin-bottom: 28px;
+  margin-bottom: 32px;
+  width: 100%;
 }
 
 .recommendation-row:last-child {
@@ -950,32 +951,30 @@ watch(
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-main);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
+.recommendation-grid,
 .recommendation-scroll {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  scroll-snap-type: x proximity;
-  -webkit-overflow-scrolling: touch;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 20px;
+  width: 100%;
 }
 
-.recommendation-scroll::-webkit-scrollbar {
-  height: 6px;
+@media (max-width: 960px) {
+  .recommendation-grid,
+  .recommendation-scroll {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
 }
 
-.recommendation-scroll::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: var(--radius-full);
-}
-
-.recommendation-scroll::-webkit-scrollbar-thumb:hover {
-  background: #444444;
-}
-
-.recommendation-scroll::-webkit-scrollbar-track {
-  background: transparent;
+@media (max-width: 600px) {
+  .recommendation-grid,
+  .recommendation-scroll {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
 }
 </style>

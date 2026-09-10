@@ -86,8 +86,9 @@ function navigateToDetail() {
 
 <style scoped>
 .rec-card {
-  flex-shrink: 0;
-  width: 150px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   cursor: pointer;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
@@ -180,6 +181,9 @@ function navigateToDetail() {
 
 .rec-card-body {
   padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .rec-title {
@@ -215,7 +219,7 @@ function navigateToDetail() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 110px;
+  min-width: 0;
 }
 
 .rec-episode-name {
@@ -227,10 +231,6 @@ function navigateToDetail() {
 }
 
 @media (max-width: 640px) {
-  .rec-card {
-    width: 130px;
-  }
-
   .rec-card-body {
     padding: 8px 10px;
   }
