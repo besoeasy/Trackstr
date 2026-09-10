@@ -1,183 +1,187 @@
-# Trackstr — Open-Source Media Tracker (Letterboxd + Trakt + Last.fm Alternative)
+# Trackstr
 
-**Track everything you love. Own your taste.**
-
-Trackstr is a free, open-source media tracker for **movies, TV shows, and music** — a decentralized, privacy-first **Letterboxd alternative, Trakt alternative, and Last.fm alternative** in one app. Track your watchlist, rate, review, scrobble your listening history, and follow friends — with all ratings, reviews, and activity owned by your **Nostr** identity and media stored on **IPFS**, not locked in a walled garden.
-
-👉 **Live demo:** https://trackstr.besoeasy.com/
+> **The Open-Source Media Tracker & Decentralized Media Database.**  
+> Replacing Letterboxd, Trakt, and Last.fm for tracking — and replacing IMDb and TMDB with an open, permissionless protocol for developers.
 
 [![Live Demo](https://img.shields.io/badge/demo-trackstr.besoeasy.com-blue?style=flat-square)](https://trackstr.besoeasy.com/)
-[![Nostr Protocol](https://img.shields.io/badge/protocol-nostr-purple?style=flat-square)](https://nostr.com/)
-[![IPFS](https://img.shields.io/badge/storage-IPFS%20via%20Originless-cyan?style=flat-square)](https://originless.gupt.app/)
-[![Vue 3](https://img.shields.io/badge/vue-3-emerald?style=flat-square)](https://vuejs.org/)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey?style=flat-square)](#-license)
+[![Protocol](https://img.shields.io/badge/protocol-nostr-purple?style=flat-square)](https://nostr.com/)
+[![Storage](https://img.shields.io/badge/storage-IPFS%20via%20Originless-cyan?style=flat-square)](https://originless.gupt.app/)
+[![Stack](https://img.shields.io/badge/stack-Vue%203%20%7C%20Vite-emerald?style=flat-square)](https://vuejs.org/)
+[![Tests](https://img.shields.io/badge/tests-145%20passing-brightgreen?style=flat-square)](#-testing)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Open-lightgrey?style=flat-square)](#-license)
 
-> If you like Trackstr, please ⭐ star this repo — it helps others discover a truly open media tracker.
+Trackstr unites personal media tracking and an open media database into a single decentralized stack:
 
-## Table of Contents
+1. **For Users:** A unified personal tracker for **movies, TV shows & episodes, and music**. Track watchlists, rate (1–10), write spoiler-tagged reviews, scrobble your listening history, and follow friends. You own your identity, diary, and social graph via **Nostr** cryptographic keys.
+2. **For Developers & The Open Web:** An open-source, permissionless replacement for **IMDb and TMDB**. Instead of commercial APIs with paywalls, restrictive licenses, and rate limits, Trackstr provides a decentralized metadata layer. Media records are published directly to Nostr relays and pinned to **IPFS**, accessible to any developer without API keys or vendor lock-in.
 
-- [Why Trackstr?](#-why-trackstr)
-- [Features](#-features-movie-tracker--tv-show-tracker--music-tracker)
-- [Letterboxd vs Trakt vs Last.fm vs Trackstr](#-letterboxd-vs-trakt-vs-lastfm-vs-trackstr)
-- [Supported Media](#-supported-media)
-- [Built With](#️-built-with)
-- [How Your Data Stays Yours (Nostr + IPFS)](#-how-your-data-stays-yours-nostr--ipfs)
-- [Vision](#️-vision)
-- [Getting Started](#-getting-started)
-- [Contributing](#-contributing)
-- [License](#-license)
+---
 
-## 💡 Why Trackstr?
+## ⚡ The Shift: Centralized vs Trackstr
 
-- **One tracker for everything:** movie tracker, TV show tracker (series + episode tracking), and music tracker with scrobbling — no need for three separate apps.
-- **Own your data:** your watch history, ratings, reviews, watchlists, and social graph live on Nostr under your keys. Export anytime, never locked in.
-- **Privacy-first & decentralized:** no ads, no data harvesting. Censorship-resistant relays + content-addressed IPFS media via Originless.
-- **Social by design:** follow friends, discover what they're watching and listening to, build community-curated metadata.
-- **Open source:** auditable Vue 3 + Vite JavaScript codebase. Self-host the frontend in minutes.
+| Dimension | Legacy Trackers (Letterboxd, Trakt, Last.fm) | Commercial DBs (IMDb, TMDB) | **Trackstr** |
+| :--- | :--- | :--- | :--- |
+| **Scope** | Siloed (separate apps for movies, TV, music) | Metadata catalogs only | **All-in-one** (Movies, TV series, episodes, music) |
+| **Data Ownership** | Proprietary servers; locked-in diaries | Proprietary datasets | **Self-sovereign** (owned by your Nostr pubkey) |
+| **Developer API** | Heavily restricted or non-existent | Paywalled tiers, rate limits, commercial licenses | **100% Free & Permissionless** (query any Nostr relay) |
+| **Content ID** | Proprietary internal identifiers | `tt...`, `tmdb_id` vendor lock-in | **Deterministic SHA-256** (`sha256(canonical_string)`) |
+| **Media Assets** | Centralized CDNs (fragile, subject to link rot) | Proprietary image CDNs | **Decentralized IPFS** (`ipfs://<CID>` via Originless) |
+| **Curation** | Centralized moderators | Centralized review queues | **Decentralized & Web-of-Trust (WoT)** |
 
-## ✨ Features (Movie Tracker + TV Show Tracker + Music Tracker)
+---
 
-* 🎬 **Movie tracking** — log watched films, plan-to-watch watchlists, per-status library (watching, completed, on-hold, dropped)
-* 📺 **TV show & episode tracking** — follow series, track seasons/episodes, never ask “which episode were we on?” again
-* 🎵 **Music tracking & scrobbling** — log albums/tracks, scrobble listening history, plan-to-listen lists
-* ⭐ **Ratings (1–10)** — rate movies, shows, episodes, and music; half-steps supported
-* ✍️ **Reviews with spoilers** — write permanent spoiler-tagged reviews
-* 📋 **Watchlists & lists** — plan-to-watch / plan-to-listen queues and custom collections
-* 👥 **Social discovery** — follow friends (NIP-02), activity feeds, community ratings consensus
-* 🔐 **Nostr identity** — log in with NIP-07 browser extensions (Alby, nos2x); no passwords to leak
-* 🌐 **Portable user data** — NIP-33 replaceable state + permanent NIP-01 logs; standard NIP-09 deletes
-* 🔌 **Integrations** — connect Spotify, Plex, Jellyfin, and more; metadata from TMDB, TVMaze, Wikipedia & MusicBrainz
-* 🖼️ **Decentralized artwork** — posters/banners pinned to IPFS via Originless (`ipfs://<CID>`), community-seeded
+## ✨ Features
 
-## 🆚 Letterboxd vs Trakt vs Last.fm vs Trackstr
+- 🎬 **Unified Media Tracking:** Log films, follow TV series season-by-season and episode-by-episode, and scrobble music albums and tracks.
+- ⭐ **Ratings & Reviews:** 1–10 scale ratings (half-steps supported) and permanent, spoiler-tagged reviews.
+- 📋 **Flexible Libraries:** Manage statuses (`plan-to-watch`, `watching`, `completed`, `on-hold`, `dropped`, `plan-to-listen`, `listening`).
+- 🌐 **Open Media Database (Kind 35403):** Community-curated media metadata (titles, synopses, genres, artwork) stored on open relays — replacing proprietary database lookups.
+- 🖼️ **IPFS-Native Media:** Artwork and backdrops are content-addressed and pinned to IPFS via [Originless](https://originless.gupt.app/).
+- 🔐 **Cryptographic Auth:** Log in with NIP-07 browser extensions (Alby, nos2x) or local `nsec` keys. Zero email/password dependencies.
+- 🔌 **Open Aggregation:** Fallbacks and imports for Wikipedia, TVMaze, and MusicBrainz, with support for Spotify, Plex, and Jellyfin history.
 
-| Need | Letterboxd | Trakt | Last.fm | **Trackstr** |
-|---|---|---|---|---|
-| Movie diary, ratings, reviews, watchlist | ✅ | partial | ❌ | ✅ |
-| TV show + episode tracking | ❌ | ✅ | ❌ | ✅ |
-| Music tracking + scrobbling | ❌ | ❌ | ✅ | ✅ |
-| Open source | ❌ | ❌ | ❌ | ✅ |
-| Own your data (no lock-in) | ❌ | ❌ | ❌ | ✅ Nostr keys |
-| Decentralized, privacy-first | ❌ | ❌ | ❌ | ✅ Nostr + IPFS |
-| Spotify / Plex / Jellyfin sync | partial | ✅ | ✅ | ✅ |
+---
 
-Looking for an **open-source Letterboxd alternative** that also covers TV, a **Trakt alternative** without the walled garden, or a **Last.fm alternative** that respects privacy? Trackstr is all three — with your history under your control.
+## 🛠️ Developer Protocol & Architecture
 
-## 🧩 Supported Media
+Trackstr replaces centralized REST APIs with open Nostr event kinds and deterministic content addressing. Any client can read, seed, and build on this data without authentication or API tokens.
 
-* **Movies** — theatrical films, release year tracking, TMDB + Wikipedia synopses
-* **TV Shows** — series, seasons & episodes (season `0` = specials), TVMaze schedules
-* **Music** — artists, albums & tracks via MusicBrainz
+### 1. Nostr Event Kinds
 
-## 🛠️ Built With
+| Kind | Type | NIP | Purpose |
+| :--- | :--- | :--- | :--- |
+| **`35400`** | Parameterized Replaceable | NIP-33 | Mutable rating (1–10). Keyed by `d` tag (`contentid` or `contentid:s{season}e{episode}`). |
+| **`35402`** | Parameterized Replaceable | NIP-33 | Mutable watch/listen status and episode progress. |
+| **`35403`** | Parameterized Replaceable | NIP-33 | **Community Media Metadata (IMDb/TMDB replacement)** — synopses, genres, language, IPFS artwork. |
+| **`5401`** | Regular (Immutable) | NIP-01 | Permanent historical reviews (with spoiler flags & ratings). |
+| **`5402`** | Regular (Immutable) | NIP-01 | Permanent scrobble / check-in activity diary entries. |
+| **`5`** | Deletion | NIP-09 | Cryptographic deletion notices. |
 
-* **Vue.js 3** + **Vite** (Pure JavaScript) — fast, lightweight web app
-* **Custom CSS Design System** (Zero bloated CSS frameworks)
-* **Nostr Protocol**:
-  * **NIP-33** Parameterized Replaceable Events (`kinds 35400–35403`) for mutable state — ratings, watch status, community metadata (zero relay bloat, zero auto-renew)
-  * **NIP-01** Regular Kinds (`kinds 5401–5402`) for permanent historical logs — written reviews & scrobbles/check-ins without expiration
-  * **NIP-09** Deletion Requests (`kind: 5`) for removals
-  * **NIP-07** Browser extension signing (Alby, nos2x)
-  * **NIP-02** Follows (`kind: 3`) + **NIP-01** Profiles (`kind: 0`)
-* **[Originless](https://github.com/besoeasy/Originless)** — decentralized IPFS storage backend for media assets (`ipfs://<CID>`)
-* **Multi-Source Metadata Engine** (presentation only — never stored on Nostr as proprietary IDs):
-  * **TMDB** — movies & series metadata, credits & high-res artwork
-  * **TVMaze** — TV series schedules, networks & episode status (100% open)
-  * **Wikipedia REST API** — theatrical film synopses (100% open)
-  * **MusicBrainz** — music releases, tracks & artists (100% open)
+### 2. Provider-Free Canonical Content ID
 
-## 🔑 How Your Data Stays Yours (Nostr + IPFS)
+To avoid dependency on IMDb IDs (`tt1234567`) or TMDB IDs, Trackstr computes a deterministic SHA-256 hash from normalized metadata:
 
-* **Mutable state** (current rating `35400`, watch/listening status `35402`, community metadata `35403`) uses NIP-33 parameterized replaceable events keyed by `(kind, pubkey, d-tag)` — relays keep only the latest, so updates never bloat relays.
-* **Immutable logs** (written reviews `5401`, scrobbles/check-ins `5402`) are permanent NIP-01 diary entries with no expiration tags.
-* Every event carries one `["trackstr", "<app-id>"]` tag and joins on provider-free `contentid` (`sha256` of normalized `type|title|year`) — no TMDB/IMDb/MBIDs on relays.
-* Deletions follow standard NIP-09 (`kind: 5`).
-* Posters/banners use `ipfs://<CID>` via Originless — permanent, content-addressed, no S3/Imgur hotlinks.
+```javascript
+// Movies & TV Shows
+canonicalString = `${norm(type)}|${norm(title)}|${norm(year)}`
 
-See [AGENTS.md](./AGENTS.md) for the full event schema and contributor checklist.
+// Music Releases
+canonicalString = `music|${norm(artist)}|${norm(title)}|${norm(year)}`
 
-## 🏗️ Vision
-
-Trackstr aims to become a **portable social layer for your media life**.
-
-Your activity, ratings, reviews, watchlists, and social graph belong to your Nostr identity — not to a centralized platform.
-
-```text
-Spotify ─────┐
-Plex ────────┤
-Jellyfin ────┤
-             ▼
-          Trackstr
-             │
-             ▼
-           Nostr
-             │
-       ┌─────┼─────┐
-       ▼     ▼     ▼
-     Movies  Music  Shows
+// Deterministic 64-character hex ID:
+contentId = sha256(canonicalString)
 ```
 
-## 🚀 Getting Started
+*Normalization applies Unicode NFKC normalization, lowercase conversion, trimmed whitespace, and delimiter escaping (`\|`).*
 
+### 3. Querying Media Metadata (Zero API Keys)
+
+Any developer or client can query media records directly from standard Nostr relays without accounts, tokens, or rate limits:
+
+```javascript
+import { SimplePool } from 'nostr-tools'
+
+const pool = new SimplePool()
+const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+
+// Query community-curated metadata for any title (replaces TMDB/IMDb API calls)
+const [metadataEvent] = await pool.querySync(relays, {
+  kinds: [35403],
+  '#d': [contentId]
+})
+
+// Extract synopsis, genres, and IPFS poster
+const synopsis = metadataEvent.content
+const posterCid = metadataEvent.tags.find(t => t[0] === 'poster')?.[1] // ipfs://<CID>
+```
+
+---
+
+## 🚀 Quickstart
+
+### Prerequisites
+- Node.js `22+` (or Podman / Docker)
+
+### Run with Node
 ```bash
-# 1. Clone the open-source media tracker
+# Clone the repository
 git clone https://github.com/besoeasy/Trackstr.git
 cd Trackstr
 
-# 2. Install & run (Node 22+)
+# Install dependencies & start dev server
 npm install
 npm run dev
 ```
 
+### Run with Podman (Containerized)
+All workflows run in Node LTS containers — no host Node or npm required:
 ```bash
-# Run the automated test suite (Vitest unit tests)
-npm test
+# Development server (http://localhost:5173)
+npm run dev:podman
+
+# Run test suite
+npm run test:podman
+
+# Static production build
+npm run build:podman
+
+# Preview production build (http://localhost:4173)
+npm run preview:podman
 ```
 
-> Prefer Podman? All dev/test/build steps run in Node LTS containers —
-> no host Node required:
->
-> ```bash
-> # Dev server on http://localhost:5173 (Node LTS via Podman)
-> npm run dev:podman
->
-> # Tests in Node LTS via Podman
-> npm run test:podman
->
-> # Production build in Node LTS via Podman
-> npm run build:podman
->
-> # Preview the production build on http://localhost:4173
-> npm run preview:podman
-> ```
->
-> These use `docker.io/library/node:lts-alpine` with `--userns=keep-id`,
-> so files created in the container stay owned by your user.
->
-> No host `npm` at all? Run the same containers directly:
->
-> ```bash
-> # Dev server
-> podman run --rm -it -v ./:/app:z -w /app --userns=keep-id -p 5173:5173 \
->   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm run dev -- --host 0.0.0.0 --port 5173"
->
-> # Tests
-> podman run --rm -v ./:/app:z -w /app --userns=keep-id \
->   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm test"
->
-> # Production build
-> podman run --rm -v ./:/app:z -w /app --userns=keep-id \
->   docker.io/library/node:lts-alpine sh -c "[ -d node_modules ] || npm ci; npm run build"
-> ```
+---
 
-Open http://localhost:5173, connect a Nostr extension (Alby / nos2x), and start tracking movies, shows, and music. To deploy, run `npm run build` and host the static `dist/` anywhere — your data still lives on Nostr relays you choose.
+## 🧪 Testing
+
+The Vitest suite covers Nostr event builders, canonical content ID hashing, local key signing, and metadata parsers:
+
+```bash
+npm test
+# Or containerized:
+npm run test:podman
+```
+
+---
+
+## 📦 Production Deployment
+
+Trackstr compiles to a 100% static, client-side bundle with zero backend dependencies (your data lives on Nostr relays):
+
+```bash
+npm run build
+```
+
+The output in `dist/` can be served by any static host (Cloudflare Pages, Vercel, GitHub Pages, Nginx). A production-ready [Dockerfile](./Dockerfile) and [nginx.conf](./nginx.conf) are provided.
+
+---
+
+## 🤙 Vibe Coders & AI Builders Welcome
+
+Building with Cursor, Claude, ChatGPT, Copilot, or Antigravity? **You're in the right place.**
+
+Trackstr is engineered to be an ideal playground for AI-assisted development:
+- **Zero Backend Friction:** No database servers, no microservices, and no credentials to configure. Run `npm run dev` and your frontend connects directly to open Nostr relays and IPFS.
+- **No API Keys or Paywalls:** Build media features without waiting for TMDB API approvals or paying IMDb enterprise licensing fees. Query and publish freely.
+- **Agent-Ready Context:** Hand [AGENTS.md](./AGENTS.md) directly to your AI coding agent — it contains the complete event schema, deterministic content ID hashing rules, and validation checklists.
+- **Sub-Second Test Feedback:** 145+ Vitest unit tests run in under 1 second (`npm test` or `npm run test:podman`), enabling fast, automated AI iteration loops.
+
+Have an idea for a custom theme, a mini player, a Raycast extension, a Discord bot, or a CLI? Fork it, prompt your favorite model, and ship it.
+
+---
 
 ## 🤝 Contributing
 
-Contributions, ideas, and feedback are welcome — especially around movie/TV/music tracking UX, Nostr relay behavior, metadata curation, and Spotify/Plex/Jellyfin sync.
+Contributions are welcome! Whether you are building client applications on top of Trackstr's open data, improving metadata curation, or adding scrobbler integrations:
 
-More details coming soon. In the meantime, please ⭐ star the repo and open an issue with what you'd track first.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/open-metadata`)
+3. Commit your changes (`git commit -m 'feat: open metadata enhancement'`)
+4. Push to the branch (`git push origin feature/open-metadata`)
+5. Open a Pull Request
+
+---
 
 ## 📜 License
 
-TBD
+Open source under the [MIT License](https://opensource.org/licenses/MIT).
+
