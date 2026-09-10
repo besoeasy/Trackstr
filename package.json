@@ -55,6 +55,7 @@
     "test:podman": "podman run --rm -v ./:/app:z -w /app --userns=keep-id docker.io/library/node:lts-alpine sh -c \"[ -d node_modules ] || npm ci; npm test\""
   },
   "dependencies": {
+    "@helia/verified-fetch": "^8.1.0",
     "nostr-tools": "^2.25.2",
     "pinia": "^4.0.2",
     "qrcode": "^1.5.4",
