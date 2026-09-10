@@ -14,6 +14,7 @@ import { getMusicDetails } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
 import TvEpisodeTracker from '@/components/TvEpisodeTracker.vue'
+import { getRandomReviewSuggestions } from '@/utils/reviewSuggestions.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,6 +92,7 @@ const reviewBody = ref('')
 const reviewSpoiler = ref(false)
 const isSubmittingReview = ref(false)
 const reviewError = ref('')
+const reviewSuggestions = ref([])
 
 // User's current tracking status (Kind 35402)
 const userStatus = computed(() => {
@@ -382,6 +384,21 @@ async function handleRatingChange(newRating) {
   }
 }
 
+function refreshReviewSuggestions() {
+  reviewSuggestions.value = getRandomReviewSuggestions(5, media.value?.type || 'movie', reviewSuggestions.value)
+}
+
+function applyReviewSuggestion(suggestion) {
+  const clean = suggestion.trim()
+  if (!reviewBody.value.trim()) {
+    reviewBody.value = clean
+  } else {
+    const current = reviewBody.value.trim()
+    const needsPunctuation = !/[.!?]$/.test(current)
+    reviewBody.value = `${current}${needsPunctuation ? '.' : ''} ${clean}`
+  }
+}
+
 function openReviewModal() {
   if (!authStore.isAuthenticated) {
     authStore.openLoginModal()
@@ -390,6 +407,7 @@ function openReviewModal() {
   reviewBody.value = ''
   reviewSpoiler.value = false
   reviewError.value = ''
+  refreshReviewSuggestions()
   showReviewModal.value = true
 }
 
@@ -833,6 +851,34 @@ function goBack() {
 
                 <div v-if="reviewError" class="badge badge-danger error-banner">
                   {{ reviewError }}
+                </div>
+
+                <!-- 1-Click Suggestions from pool of 100+ noun & verb combinations -->
+                <div class="review-suggestions-container">
+                  <div class="review-suggestions-header">
+                    <span class="review-suggestions-label">💡 1-Click Suggestions</span>
+                    <button
+                      type="button"
+                      class="btn-refresh-suggestions"
+                      title="Generate 5 new random suggestions"
+                      @click="refreshReviewSuggestions"
+                    >
+                      🔄 Shuffle
+                    </button>
+                  </div>
+                  <div class="review-suggestions-chips" role="group" aria-label="Review suggestions">
+                    <button
+                      v-for="(suggestion, idx) in reviewSuggestions"
+                      :key="idx + '-' + suggestion"
+                      type="button"
+                      class="suggestion-chip"
+                      :class="{ 'chip-selected': reviewBody.includes(suggestion) }"
+                      :title="`Add '${suggestion}' to review`"
+                      @click="applyReviewSuggestion(suggestion)"
+                    >
+                      {{ suggestion }}
+                    </button>
+                  </div>
                 </div>
 
                 <textarea
@@ -1361,6 +1407,85 @@ function goBack() {
 .review-modal-sub {
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.review-suggestions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.review-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.review-suggestions-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.btn-refresh-suggestions {
+  background: transparent;
+  border: 1px solid var(--border-color, #2d3748);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  border-radius: var(--radius-sm, 6px);
+  padding: 3px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-refresh-suggestions:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+  color: var(--text-main);
+  border-color: var(--text-muted);
+}
+
+.review-suggestions-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-chip {
+  background: var(--bg-secondary, #1a202c);
+  color: var(--text-secondary, #cbd5e0);
+  border: 1px solid var(--border-color, #2d3748);
+  border-radius: 9999px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  line-height: 1.3;
+  transition: all var(--transition-fast, 0.15s ease);
+  user-select: none;
+  text-align: center;
+}
+
+.suggestion-chip:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-main, #ffffff);
+  border-color: var(--primary-color, #6366f1);
+  transform: translateY(-1px);
+}
+
+.suggestion-chip.chip-selected {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+  font-weight: 600;
 }
 
 .review-modal-textarea {

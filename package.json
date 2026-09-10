@@ -53,7 +53,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:podman": "podman run --rm -v ./:/app:z -w /app --userns=keep-id docker.io/library/node:lts-alpine sh -c \"[ -d node_modules ] || npm ci; npm test\"",
-    "test:mobile": "node scripts/test-mobile.js"
+    "test:mobile": "node scripts/test-mobile.js",
+    "test:reviews": "node scripts/test-review-suggestions.js"
   },
   "dependencies": {
     "@helia/verified-fetch": "^8.1.0",

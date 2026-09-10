@@ -125,18 +125,20 @@ function handleContinueToApp() {
           type="button"
           @click="activeTab = 'extension'"
         >
-          <span class="tab-icon">🧩</span>
-          <div class="tab-text">
-            <span class="tab-title">Extension (NIP-07)</span>
-            <span class="tab-sub">Alby, nos2x, Amber</span>
+          <div class="tab-top-row">
+            <span class="tab-icon">🧩</span>
+            <span
+              v-if="hasExtension"
+              class="badge badge-success tab-badge"
+              title="Extension detected"
+            >
+              Ready
+            </span>
           </div>
-          <span
-            v-if="hasExtension"
-            class="badge badge-success tab-badge"
-            title="Extension detected"
-          >
-            Ready
-          </span>
+          <div class="tab-text">
+            <span class="tab-title">Extension</span>
+            <span class="tab-sub">NIP-07 (Alby, nos2x)</span>
+          </div>
         </button>
 
         <button
@@ -145,7 +147,9 @@ function handleContinueToApp() {
           type="button"
           @click="activeTab = 'nsec'"
         >
-          <span class="tab-icon">🔑</span>
+          <div class="tab-top-row">
+            <span class="tab-icon">🔑</span>
+          </div>
           <div class="tab-text">
             <span class="tab-title">nsec Key</span>
             <span class="tab-sub">Paste private key</span>
@@ -158,10 +162,12 @@ function handleContinueToApp() {
           type="button"
           @click="activeTab = 'disposable'"
         >
-          <span class="tab-icon">🎭</span>
+          <div class="tab-top-row">
+            <span class="tab-icon">🎭</span>
+          </div>
           <div class="tab-text">
             <span class="tab-title">Disposable</span>
-            <span class="tab-sub">Instant throwaway account</span>
+            <span class="tab-sub">Burner account</span>
           </div>
         </button>
       </div>
@@ -319,9 +325,11 @@ function handleContinueToApp() {
 
 <style scoped>
 .connect-page-wrap {
-  max-width: 540px;
+  max-width: 580px;
   margin: 0 auto;
   padding: 12px 0 60px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-top-nav {
@@ -357,6 +365,9 @@ function handleContinueToApp() {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .connect-header {
@@ -391,16 +402,17 @@ function handleContinueToApp() {
 
 .method-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   margin-bottom: 24px;
+  width: 100%;
 }
 
 .method-tab {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color, #262626);
   background: var(--bg-card);
@@ -408,7 +420,9 @@ function handleContinueToApp() {
   cursor: pointer;
   text-align: left;
   transition: all var(--transition-fast);
-  position: relative;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .method-tab:hover {
@@ -426,39 +440,49 @@ function handleContinueToApp() {
   background: #f5f5f5;
 }
 
+.tab-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
 .tab-icon {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
+  line-height: 1;
   flex-shrink: 0;
+}
+
+.tab-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  line-height: 1.2;
 }
 
 .tab-text {
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-width: 0;
 }
 
 .tab-title {
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-main);
+  margin-bottom: 2px;
 }
 
 .tab-sub {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.tab-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 0.65rem;
-  padding: 2px 6px;
 }
 
 .option-description {
