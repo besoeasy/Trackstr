@@ -10,7 +10,7 @@ import {
   buildActivityLogEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
-import { buildDTag } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
 import { useAuthStore } from './auth.js'
 
 const LOCAL_STORAGE_KEY = 'trackstr_media_cache'
@@ -67,6 +67,13 @@ export const useMediaStore = defineStore('media', () => {
         })
         Object.keys(communityMetadata.value).forEach((cId) => {
           nostrContentIds.value[cId] = 1
+        })
+        // Heal any episode types in mediaLibrary cache
+        Object.keys(mediaLibrary.value).forEach((cid) => {
+          const m = mediaLibrary.value[cid]
+          if (m && (m.type === 'episode' || /S\d+E\d+/i.test(m.name || m.title || ''))) {
+            mediaLibrary.value[cid] = toShowLevel(m)
+          }
         })
       }
     } catch (err) {
@@ -140,7 +147,8 @@ export const useMediaStore = defineStore('media', () => {
    * view instead, stripping the " - S01E01: ..." suffix from the name.
    */
   function toShowLevel(episodeMedia) {
-    const name = String(episodeMedia.name || episodeMedia.title || '').replace(/\s+-\s+S\d+E\d+:.*$/i, '')
+    const raw = episodeMedia.name || episodeMedia.title || ''
+    const name = cleanShowTitle(raw)
     return {
       ...episodeMedia,
       type: 'show',
@@ -169,8 +177,11 @@ export const useMediaStore = defineStore('media', () => {
     // overwrite the viewer's own status/rating.
     const authorKey = `${evt.pubkey || 'unknown'}:${dTag}`
 
-    if (media.contentId && !mediaLibrary.value[media.contentId]) {
-      mediaLibrary.value[media.contentId] = media.type === 'episode' ? toShowLevel(media) : media
+    if (media.contentId) {
+      const existing = mediaLibrary.value[media.contentId]
+      if (!existing || existing.type === 'episode') {
+        mediaLibrary.value[media.contentId] = media.type === 'episode' ? toShowLevel(media) : media
+      }
     }
     if (media.contentId) {
       // Record Nostr provenance so Nostr-only surfaces can distinguish
@@ -894,11 +905,14 @@ export const useMediaStore = defineStore('media', () => {
     for (const item of items) {
       if (!item?.contentId) continue
       const contentId = item.contentId
+      const isEp = item.type === 'episode' || /S\d+E\d+/i.test(item.name || '')
+      const mediaType = isEp ? 'show' : (item.type || 'movie')
+      const cleanName = mediaType === 'show' ? cleanShowTitle(item.name) : (item.name || '')
       const mediaRef = {
         contentId,
-        type: item.type || 'movie',
-        name: item.name,
-        title: item.name,
+        type: mediaType,
+        name: cleanName,
+        title: cleanName,
         year: item.year || '',
       }
 
@@ -958,7 +972,100 @@ export const useMediaStore = defineStore('media', () => {
   const trackedItemsList = computed(() => {
     // The library is the viewer's own tracking — never strangers' events.
     if (!authStore.pubkey) return []
-    return Object.values(statuses.value).filter((s) => s.pubkey === authStore.pubkey)
+    const userStatuses = Object.values(statuses.value).filter((s) => s.pubkey === authStore.pubkey)
+
+    // Group items by base contentId so multiple episodes don't clutter the library as separate rows
+    const groups = new Map()
+
+    for (const item of userStatuses) {
+      const baseContentId = (item.contentId || item.dTag?.split(':')[0] || '').toLowerCase()
+      if (!baseContentId) continue
+
+      if (!groups.has(baseContentId)) {
+        groups.set(baseContentId, [])
+      }
+      groups.get(baseContentId).push(item)
+    }
+
+    const result = []
+
+    for (const [baseId, items] of groups.entries()) {
+      // Find explicit show-level status (dTag === baseId or not containing ':s')
+      const showItem = items.find((i) => i.dTag === baseId || (!i.media?.season && i.media?.type !== 'episode' && !i.dTag?.includes(':s')))
+      const episodeItems = items.filter((i) => i !== showItem && (i.media?.type === 'episode' || i.dTag?.includes(':s') || i.media?.season !== undefined))
+
+      const libMedia = mediaLibrary.value[baseId]
+
+      if (showItem) {
+        if (episodeItems.length > 0) {
+          const epCount = episodeItems.filter((e) => e.status === 'completed').length
+          const episodeDTags = episodeItems.map((e) => e.dTag)
+          const progressText = showItem.progress || (epCount > 0 ? `${epCount} ep${epCount === 1 ? '' : 's'} watched` : '')
+
+          const showTitle = cleanShowTitle(showItem.media?.name || showItem.media?.title || libMedia?.name || libMedia?.title || '')
+          const showMedia = {
+            ...(showItem.media || {}),
+            ...(libMedia || {}),
+            type: showItem.media?.type === 'episode' ? 'show' : (showItem.media?.type || libMedia?.type || 'show'),
+            name: showTitle,
+            title: showTitle,
+            season: undefined,
+            episode: undefined,
+          }
+
+          result.push({
+            ...showItem,
+            media: showMedia,
+            progress: progressText,
+            episodeDTags,
+            episodeCount: epCount,
+          })
+        } else {
+          const showMedia = showItem.media ? {
+            ...showItem.media,
+            ...(libMedia || {}),
+            name: showItem.media.type === 'show' ? cleanShowTitle(showItem.media.name || libMedia?.name || '') : (showItem.media.name || libMedia?.name || ''),
+            title: showItem.media.type === 'show' ? cleanShowTitle(showItem.media.title || libMedia?.title || '') : (showItem.media.title || libMedia?.title || ''),
+          } : libMedia
+
+          result.push({
+            ...showItem,
+            media: showMedia || showItem.media,
+          })
+        }
+      } else if (episodeItems.length > 0) {
+        // Only episode statuses exist for this show; fold into a consolidated show row
+        const epCount = episodeItems.filter((e) => e.status === 'completed').length
+        const newest = episodeItems.reduce((a, b) => ((b.createdAt || 0) > (a.createdAt || 0) ? b : a), episodeItems[0])
+        const rawMedia = newest.media || libMedia || {}
+        const showTitle = cleanShowTitle(rawMedia.name || rawMedia.title || libMedia?.name || libMedia?.title || 'TV Series')
+
+        const showMedia = {
+          ...rawMedia,
+          ...(libMedia || {}),
+          type: 'show',
+          name: showTitle,
+          title: showTitle,
+          season: undefined,
+          episode: undefined,
+        }
+
+        result.push({
+          dTag: baseId,
+          contentId: baseId,
+          status: 'watching',
+          progress: epCount > 0 ? `${epCount} ep${epCount === 1 ? '' : 's'} watched` : '',
+          eventId: newest.eventId,
+          createdAt: newest.createdAt,
+          pubkey: authStore.pubkey,
+          media: showMedia,
+          episodeDTags: episodeItems.map((e) => e.dTag),
+          episodeCount: epCount,
+        })
+      }
+    }
+
+    return result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
   })
 
   return {

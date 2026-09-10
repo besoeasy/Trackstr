@@ -6,7 +6,18 @@ import {
   computeContentId,
   buildDTag,
   assertContentId,
+  cleanShowTitle,
 } from '@/utils/contentId.js'
+
+describe('cleanShowTitle()', () => {
+  it('strips episode prefixes and suffixes', () => {
+    expect(cleanShowTitle('Stranger Things - S1E6: Chapter Six: The Monster')).toBe('Stranger Things')
+    expect(cleanShowTitle('Breaking Bad - Season 1')).toBe('Breaking Bad')
+    expect(cleanShowTitle('The Office (US) - S02E01')).toBe('The Office (US)')
+    expect(cleanShowTitle('Lost (S01E01)')).toBe('Lost')
+    expect(cleanShowTitle('Dark')).toBe('Dark')
+  })
+})
 
 describe('norm() — byte-exact normalization', () => {
   it('lowercases, trims and collapses whitespace', () => {
@@ -40,11 +51,15 @@ describe('buildCanonicalString()', () => {
     ).toBe('music|nirvana|nevermind|1991')
   })
 
-  it('anchors episodes to the parent show identity', () => {
-    const episode = buildCanonicalString({ type: 'episode', title: 'Breaking Bad', year: '2008' })
-    const show = buildCanonicalString({ type: 'show', title: 'Breaking Bad', year: '2008' })
+  it('anchors episodes to the parent show identity even with full episode titles', () => {
+    const episode = buildCanonicalString({
+      type: 'episode',
+      title: 'Stranger Things - S1E6: Chapter Six: The Monster',
+      year: '2016',
+    })
+    const show = buildCanonicalString({ type: 'show', title: 'Stranger Things', year: '2016' })
     expect(episode).toBe(show)
-    expect(episode).toBe('show|breaking bad|2008')
+    expect(episode).toBe('show|stranger things|2016')
   })
 
   it('appends a normalized qualifier when present', () => {

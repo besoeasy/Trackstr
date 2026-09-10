@@ -6,7 +6,7 @@ import { useMediaStore } from '@/stores/media.js'
 import { useSettingsStore } from '@/stores/settings.js'
 import { resolveIpfsUrl, mirrorRemoteUrlToOriginless } from '@/services/originless.js'
 import { useIpfsImage } from '@/composables/useIpfsImage.js'
-import { buildDTag } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
 import { getTmdbDetails } from '@/services/api/tmdb.js'
@@ -26,11 +26,40 @@ const contentId = computed(() => route.params.contentId)
 // instead of querying relays with garbage.
 const isValidContentId = computed(() => /^[0-9a-f]{64}$/i.test(contentId.value || ''))
 
+const targetSeason = computed(() => {
+  if (route.query.season) return Number(route.query.season)
+  const match = (route.query.title || '').match(/S(\d+)E(\d+)/i)
+  return match ? Number(match[1]) : null
+})
+
+const targetEpisode = computed(() => {
+  if (route.query.episode) return Number(route.query.episode)
+  const match = (route.query.title || '').match(/S(\d+)E(\d+)/i)
+  return match ? Number(match[2]) : null
+})
+
+function getInitialType() {
+  const t = route.query.type || 'movie'
+  if (t === 'episode' || /S\d+E\d+/i.test(route.query.title || '') || route.query.season) {
+    return 'show'
+  }
+  return t
+}
+
+function getInitialTitle() {
+  const t = route.query.title || ''
+  if (!t) return 'Loading...'
+  if (route.query.type === 'episode' || /S\d+E\d+/i.test(t) || route.query.season) {
+    return cleanShowTitle(t)
+  }
+  return t
+}
+
 const media = ref({
   contentId: contentId.value,
-  type: route.query.type || 'movie',
-  title: route.query.title || 'Loading...',
-  name: route.query.title || 'Loading...',
+  type: getInitialType(),
+  title: getInitialTitle(),
+  name: getInitialTitle(),
   year: route.query.year || '',
   artist: route.query.artist || '',
   overview: '',
@@ -152,17 +181,27 @@ onUnmounted(() => {
   stopAutoSeedCountdown()
 })
 
-watch(() => route.params.contentId, async () => {
-  if (!isValidContentId.value) return
-  stopAutoSeedCountdown()
-  autoSeedCountdown.value = 0
-  autoSeedSuppressed.value = false
-  autoSeedError.value = ''
-  metadataChecked.value = false
-  await loadMediaData()
-  await mediaStore.fetchMediaDetails(contentId.value).catch(() => {})
-  metadataChecked.value = true
-})
+watch(
+  () => [route.params.contentId, route.query.type, route.query.title],
+  async () => {
+    if (!isValidContentId.value) return
+    stopAutoSeedCountdown()
+    autoSeedCountdown.value = 0
+    autoSeedSuppressed.value = false
+    autoSeedError.value = ''
+    metadataChecked.value = false
+    media.value.contentId = contentId.value
+    media.value.type = getInitialType()
+    if (route.query.title) {
+      const clean = getInitialTitle()
+      media.value.title = clean
+      media.value.name = clean
+    }
+    await loadMediaData()
+    await mediaStore.fetchMediaDetails(contentId.value).catch(() => {})
+    metadataChecked.value = true
+  }
+)
 
 // Direct URL / bookmark navigation starts with a 'Loading...' placeholder
 // title. When fetchMediaDetails() populates the library from Nostr events,
@@ -170,9 +209,19 @@ watch(() => route.params.contentId, async () => {
 watch(
   () => mediaStore.mediaLibrary[contentId.value],
   (stored) => {
-    if (!stored || !stored.name && !stored.title) return
+    if (!stored || (!stored.name && !stored.title)) return
+    const isStoredEp = stored.type === 'episode' || /S\d+E\d+/i.test(stored.name || stored.title || '')
+    const cleanTitle = cleanShowTitle(stored.title || stored.name || '')
+    const storedView = isStoredEp
+      ? {
+          ...stored,
+          type: 'show',
+          title: cleanTitle,
+          name: cleanTitle,
+        }
+      : stored
     if (media.value.title === 'Loading...' || !media.value.title) {
-      media.value = { ...media.value, ...stored }
+      media.value = { ...media.value, ...storedView }
     }
   }
 )
@@ -203,13 +252,29 @@ async function loadMediaData() {
   if (stored) {
     // Episode records fold into their parent show; a stale type 'episode'
     // cache entry must never hide the show's episode tracker or type badge.
-    const storedView = stored.type === 'episode' ? { ...stored, type: 'show' } : stored
+    const isStoredEp = stored.type === 'episode' || /S\d+E\d+/i.test(stored.name || stored.title || '')
+    const cleanTitle = cleanShowTitle(stored.title || stored.name || '')
+    const storedView = isStoredEp
+      ? {
+          ...stored,
+          type: 'show',
+          title: cleanTitle,
+          name: cleanTitle,
+        }
+      : stored
     media.value = { ...media.value, ...storedView }
   }
 
+  // Ensure media.type and title are normalized if an episode was passed in
+  if (media.value.type === 'episode' || /S\d+E\d+/i.test(media.value.title || '') || route.query.season) {
+    media.value.type = 'show'
+    media.value.title = cleanShowTitle(media.value.title)
+    media.value.name = cleanShowTitle(media.value.name)
+  }
+
   // Fetch Multi-Source Rich Details (TMDB + TVMaze) for movies & shows
-  const mediaType = media.value.type || route.query.type || 'movie'
-  const mediaTitle = media.value.title || route.query.title || ''
+  const mediaType = media.value.type || getInitialType()
+  const mediaTitle = media.value.type === 'show' ? cleanShowTitle(media.value.title || route.query.title || '') : (media.value.title || route.query.title || '')
   const mediaYear = media.value.year || route.query.year || ''
 
   if (['movie', 'show'].includes(mediaType) && mediaTitle && mediaTitle !== 'Loading...') {
@@ -861,6 +926,8 @@ function goBack() {
             v-if="media.type === 'show'"
             :media="media"
             :content-id="contentId"
+            :target-season="targetSeason"
+            :target-episode="targetEpisode"
           />
 
           <!-- Overview / Synopsis -->

@@ -7,6 +7,8 @@
  *    - Movies: Wikipedia/Wikimedia REST API (100% free, public theatrical posters & synopses)
  */
 
+import { cleanShowTitle } from '@/utils/contentId.js'
+
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
@@ -345,8 +347,23 @@ export async function getTmdbDetails(type, id, title = '', year = '') {
   // 2. Fetch from TVMaze for series to enrich network and schedule
   if (type === 'show' && (title || result?.title)) {
     try {
-      const showTitle = title || result?.title
-      const tvRes = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(showTitle)}`)
+      const rawShowTitle = title || result?.title
+      const showTitle = cleanShowTitle(rawShowTitle)
+      let tvRes = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(showTitle)}`)
+
+      // Fallback to search/shows if singlesearch fails
+      if (!tvRes.ok && showTitle) {
+        try {
+          const sRes = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(showTitle)}`)
+          if (sRes.ok) {
+            const sList = await sRes.json()
+            if (sList && sList.length > 0 && sList[0].show) {
+              tvRes = { ok: true, json: () => Promise.resolve(sList[0].show) }
+            }
+          }
+        } catch {}
+      }
+
       if (tvRes.ok) {
         const tvData = await tvRes.json()
         if (!result) {

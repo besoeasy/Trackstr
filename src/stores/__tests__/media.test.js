@@ -349,4 +349,98 @@ describe('importLocalMedia()', () => {
     expect(media.reviews.length).toBe(1)
     expect(media.reviews[0].content).toBe('Incredible film')
   })
+
+  it('normalizes episode imports into clean show-level records', () => {
+    const { media } = setupStores()
+    const items = [
+      {
+        contentId: CID,
+        type: 'episode',
+        name: 'Stranger Things - S01E06: Chapter Six',
+        year: 2016,
+        status: 'completed',
+        rating: 8,
+      },
+    ]
+
+    media.importLocalMedia(items, OWN)
+
+    expect(media.mediaLibrary[CID].type).toBe('show')
+    expect(media.mediaLibrary[CID].name).toBe('Stranger Things')
+  })
+})
+
+describe('trackedItemsList episode folding', () => {
+  it('folds multiple episode statuses for the same show into a single show row', async () => {
+    const { media } = setupStores()
+
+    function makeEp(id, at, s, e, name) {
+      return {
+        id,
+        pubkey: OWN,
+        created_at: at,
+        kind: KINDS.STATUS,
+        tags: [
+          ['d', `${CID}:s${s}e${e}`],
+          ['contentid', CID],
+          ['trackstr', 'web'],
+          ['type', 'episode'],
+          ['name', name],
+          ['year', '2016'],
+          ['status', 'completed'],
+          ['season', String(s)],
+          ['episode', String(e)],
+        ],
+        content: '',
+      }
+    }
+
+    const ep1 = makeEp('ep1', 1000, 1, 1, 'Stranger Things - S01E01: Chapter One')
+    const ep2 = makeEp('ep2', 1050, 1, 2, 'Stranger Things - S01E02: The Weirdo')
+    const ep3 = makeEp('ep3', 1100, 1, 3, 'Stranger Things - S01E03: Holly, Jolly')
+
+    stubs.queryEvents.mockResolvedValueOnce([ep1, ep2, ep3])
+    await media.syncUserData(OWN)
+
+    const tracked = media.trackedItemsList
+    expect(tracked).toHaveLength(1)
+    expect(tracked[0].contentId).toBe(CID)
+    expect(tracked[0].media.type).toBe('show')
+    expect(tracked[0].media.name).toBe('Stranger Things')
+    expect(tracked[0].status).toBe('watching')
+    expect(tracked[0].progress).toBe('3 eps watched')
+    expect(tracked[0].episodeDTags).toEqual([`${CID}:s1e1`, `${CID}:s1e2`, `${CID}:s1e3`])
+  })
+
+  it('aggregates episodes when an explicit show status is also tracked', async () => {
+    const { media } = setupStores()
+
+    const show = statusEvent({
+      pubkey: OWN,
+      status: 'watching',
+      at: 1000,
+      id: 'show1',
+      dTag: CID,
+    })
+    show.tags.find((t) => t[0] === 'type')[1] = 'show'
+
+    const ep1 = statusEvent({
+      pubkey: OWN,
+      status: 'completed',
+      at: 1100,
+      id: 'ep1',
+      dTag: `${CID}:s1e1`,
+    })
+    ep1.tags.push(['season', '1'], ['episode', '1'], ['type', 'episode'])
+
+    stubs.queryEvents.mockResolvedValueOnce([show, ep1])
+    await media.syncUserData(OWN)
+
+    const tracked = media.trackedItemsList
+    expect(tracked).toHaveLength(1)
+    expect(tracked[0].contentId).toBe(CID)
+    expect(tracked[0].media.type).toBe('show')
+    expect(tracked[0].episodeCount).toBe(1)
+    expect(tracked[0].progress).toBe('1 ep watched')
+  })
 })

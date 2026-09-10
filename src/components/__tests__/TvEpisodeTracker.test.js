@@ -211,7 +211,7 @@ describe('TvEpisodeTracker.vue', () => {
     )
   })
 
-  it('batch marks an entire season as watched', async () => {
+  it('batch marks an entire season as watched and auto-promotes show', async () => {
     const setStatusSpy = vi.spyOn(mediaStore, 'setStatus').mockResolvedValue({})
 
     const wrapper = mount(TvEpisodeTracker, {
@@ -229,6 +229,36 @@ describe('TvEpisodeTracker.vue', () => {
     await batchBtn.trigger('click')
     await flushPromises()
 
-    expect(setStatusSpy).toHaveBeenCalledTimes(2)
+    // 2 episodes marked completed, plus auto-promoting the parent show to 'watching'
+    expect(setStatusSpy).toHaveBeenCalledTimes(3)
+    expect(setStatusSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentId: CID,
+        type: 'show',
+      }),
+      'watching'
+    )
+  })
+
+  it('honors targetSeason and targetEpisode props', async () => {
+    const wrapper = mount(TvEpisodeTracker, {
+      props: {
+        media: mockMedia,
+        contentId: CID,
+        targetSeason: 2,
+        targetEpisode: 1,
+      },
+    })
+
+    await flushPromises()
+
+    // Season 2 should be active
+    const activePill = wrapper.find('.season-pill-btn.active')
+    expect(activePill.text()).toContain('Season 2')
+
+    // S2E1 episode card should have is-target-episode class
+    const targetCard = wrapper.find('.episode-card.is-target-episode')
+    expect(targetCard.exists()).toBe(true)
+    expect(targetCard.text()).toContain('1. S2 Premiere')
   })
 })

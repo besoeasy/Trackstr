@@ -5,6 +5,7 @@
  */
 
 import { getTmdbApiKey, getTmdbImageUrl } from './tmdb.js'
+import { cleanShowTitle } from '@/utils/contentId.js'
 
 const episodeCache = new Map()
 
@@ -110,16 +111,31 @@ export function groupEpisodesBySeason(episodes) {
 async function fetchTvMazeEpisodes({ title, tvmazeId }) {
   try {
     let url = ''
+    const clean = cleanShowTitle(title)
     if (tvmazeId) {
       const cleanId = String(tvmazeId).replace(/^tvmaze-/, '')
       url = `https://api.tvmaze.com/shows/${cleanId}/episodes`
-    } else if (title && title.trim()) {
-      url = `https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title.trim())}&embed=episodes`
+    } else if (clean) {
+      url = `https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(clean)}&embed=episodes`
     } else {
       return null
     }
 
-    const res = await fetch(url)
+    let res = await fetch(url)
+
+    // Fallback if singlesearch 404s: search /search/shows and use first result
+    if (!res.ok && !tvmazeId && clean) {
+      try {
+        const sRes = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(clean)}`)
+        if (sRes.ok) {
+          const sList = await sRes.json()
+          if (sList && sList.length > 0 && sList[0].show?.id) {
+            res = await fetch(`https://api.tvmaze.com/shows/${sList[0].show.id}/episodes`)
+          }
+        }
+      } catch {}
+    }
+
     if (!res.ok) return null
 
     const data = await res.json()

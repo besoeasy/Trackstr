@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { fetchShowEpisodes } from '@/services/api/tv.js'
-import { buildDTag } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import RatingInput from '@/components/RatingInput.vue'
 
@@ -15,6 +15,14 @@ const props = defineProps({
   contentId: {
     type: String,
     required: true,
+  },
+  targetSeason: {
+    type: [Number, String],
+    default: null,
+  },
+  targetEpisode: {
+    type: [Number, String],
+    default: null,
   },
 })
 
@@ -110,9 +118,15 @@ async function loadEpisodes() {
 
     episodesData.value = data
     if (data.seasons.length > 0) {
-      // Default to season 1, or the first season in list
-      const s1 = data.seasons.find((s) => s.seasonNumber === 1)
-      selectedSeasonNumber.value = s1 ? 1 : data.seasons[0].seasonNumber
+      // Default to targetSeason if provided and exists, else season 1 or first season
+      const targetS = props.targetSeason ? Number(props.targetSeason) : null
+      const foundTarget = targetS ? data.seasons.find((s) => s.seasonNumber === targetS) : null
+      if (foundTarget) {
+        selectedSeasonNumber.value = targetS
+      } else {
+        const s1 = data.seasons.find((s) => s.seasonNumber === 1)
+        selectedSeasonNumber.value = s1 ? 1 : data.seasons[0].seasonNumber
+      }
     }
   } catch (err) {
     console.warn('Failed to load episodes for show:', err)
@@ -120,6 +134,15 @@ async function loadEpisodes() {
     isLoading.value = false
   }
 }
+
+watch(
+  () => props.targetSeason,
+  (newTarget) => {
+    if (newTarget && episodesData.value.seasons.some((s) => s.seasonNumber === Number(newTarget))) {
+      selectedSeasonNumber.value = Number(newTarget)
+    }
+  }
+)
 
 function isEpisodeWatched(season, episode) {
   const status = mediaStore.getMediaStatus(props.contentId, season, episode)
@@ -131,15 +154,34 @@ function getEpisodeRating(season, episode) {
 }
 
 function makeEpisodeMedia(ep) {
+  const cleanTitle = cleanShowTitle(props.media.title || props.media.name)
   return {
     ...props.media,
     contentId: props.contentId,
     type: 'episode',
     season: ep.season,
     episode: ep.episode,
-    name: `${props.media.title || props.media.name} - S${ep.season}E${ep.episode}: ${ep.name}`,
-    title: `${props.media.title || props.media.name} - S${ep.season}E${ep.episode}: ${ep.name}`,
+    name: `${cleanTitle} - S${ep.season}E${ep.episode}: ${ep.name}`,
+    title: `${cleanTitle} - S${ep.season}E${ep.episode}: ${ep.name}`,
     year: ep.airDate ? ep.airDate.slice(0, 4) : props.media.year,
+  }
+}
+
+async function autoPromoteShowStatus() {
+  const currentParentStatus = mediaStore.getMediaStatus(props.contentId)
+  if (!currentParentStatus || currentParentStatus.status === 'plan-to-watch') {
+    const cleanTitle = cleanShowTitle(props.media.title || props.media.name)
+    const parentShowMedia = {
+      ...props.media,
+      type: 'show',
+      season: undefined,
+      episode: undefined,
+      name: cleanTitle,
+      title: cleanTitle,
+    }
+    await mediaStore.setStatus(parentShowMedia, 'watching').catch((err) => {
+      console.warn('Could not auto-promote show status:', err)
+    })
   }
 }
 
@@ -170,6 +212,7 @@ async function toggleWatched(ep) {
       // Mark as completed
       const epMedia = makeEpisodeMedia(ep)
       await mediaStore.setStatus(epMedia, 'completed', `s${ep.season}e${ep.episode}`)
+      await autoPromoteShowStatus()
     }
   } catch (err) {
     console.error('Failed to toggle episode status:', err)
@@ -196,6 +239,7 @@ async function markSeasonWatched() {
       const epMedia = makeEpisodeMedia(ep)
       await mediaStore.setStatus(epMedia, 'completed', `s${ep.season}e${ep.episode}`)
     }
+    await autoPromoteShowStatus()
   } catch (err) {
     console.error('Failed to batch mark season watched:', err)
   } finally {
@@ -372,7 +416,10 @@ function formatEpCode(s, e) {
           v-for="ep in currentSeasonEpisodes"
           :key="ep.id"
           class="episode-card"
-          :class="{ watched: isEpisodeWatched(ep.season, ep.episode) }"
+          :class="{
+            watched: isEpisodeWatched(ep.season, ep.episode),
+            'is-target-episode': targetSeason && targetEpisode && Number(targetSeason) === ep.season && Number(targetEpisode) === ep.episode,
+          }"
         >
           <!-- Left: Thumbnail Still -->
           <div class="ep-thumbnail-box">
@@ -641,6 +688,12 @@ function formatEpCode(s, e) {
 .episode-card.watched {
   border-color: rgba(16, 185, 129, 0.25);
   background: rgba(16, 185, 129, 0.02);
+}
+
+.episode-card.is-target-episode {
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.05);
 }
 
 /* Thumbnail Box */

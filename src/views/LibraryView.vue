@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { formatStatus, getStatusColorClass, formatRelativeTime } from '@/utils/formatters.js'
+import { cleanShowTitle } from '@/utils/contentId.js'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -70,6 +71,15 @@ async function handleDelete(item) {
       coordinate: `35402:${authStore.pubkey}:${item.dTag}`,
       reason: 'Removed from library',
     })
+    // If item has folded episodeDTags, also publish deletions for each episode coordinate!
+    if (Array.isArray(item.episodeDTags) && item.episodeDTags.length > 0) {
+      for (const epDTag of item.episodeDTags) {
+        await mediaStore.deleteTrackstrEvent({
+          coordinate: `35402:${authStore.pubkey}:${epDTag}`,
+          reason: 'Removed from library',
+        })
+      }
+    }
     // Only emit a rating (35400) deletion if the viewer actually rated this
     // item — otherwise we'd publish a pointless NIP-09 event for nothing.
     const rated = mediaStore.getMediaRating(item.contentId, item.media?.season, item.media?.episode)
@@ -98,15 +108,24 @@ async function handleDeleteReview(review) {
 }
 
 function navigateToItem(contentId, media) {
+  const isEpisode = media?.type === 'episode' || !!media?.season || /S\d+E\d+/i.test(media?.name || media?.title || '')
+  const rawTitle = media?.name || media?.title || ''
+  const title = isEpisode ? cleanShowTitle(rawTitle) : rawTitle
+  const type = isEpisode ? 'show' : (media?.type || 'movie')
+
+  const query = {
+    type,
+    title,
+    year: media?.year || '',
+    artist: media?.artist || '',
+  }
+  if (media?.season) query.season = media.season
+  if (media?.episode) query.episode = media.episode
+
   router.push({
     name: 'media-detail',
     params: { contentId },
-    query: {
-      type: media?.type || 'movie',
-      title: media?.name || '',
-      year: media?.year || '',
-      artist: media?.artist || '',
-    },
+    query,
   })
 }
 </script>

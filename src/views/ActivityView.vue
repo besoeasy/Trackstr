@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { formatRelativeTime, formatStatus } from '@/utils/formatters.js'
+import { cleanShowTitle } from '@/utils/contentId.js'
 
 const router = useRouter()
 const mediaStore = useMediaStore()
@@ -57,13 +58,25 @@ function getTagValue(tags, name) {
 function navigateToMedia(tags) {
   const contentId = getContentId(tags)
   if (contentId) {
+    const rawType = getMediaType(tags)
+    const rawTitle = getMediaTitle(tags)
+    const isEpisode = rawType === 'episode' || /S\d+E\d+/i.test(rawTitle) || !!getTagValue(tags, 'season')
+    const type = isEpisode ? 'show' : rawType
+    const title = isEpisode ? cleanShowTitle(rawTitle) : rawTitle
+    const season = getTagValue(tags, 'season')
+    const episode = getTagValue(tags, 'episode')
+
+    const query = {
+      type,
+      title,
+    }
+    if (season) query.season = season
+    if (episode) query.episode = episode
+
     router.push({
       name: 'media-detail',
       params: { contentId },
-      query: {
-        type: getMediaType(tags),
-        title: getMediaTitle(tags),
-      },
+      query,
     })
   }
 }
@@ -139,7 +152,7 @@ function navigateToMedia(tags) {
         </div>
 
         <div class="timeline-media" @click="navigateToMedia(evt.tags)">
-          <span class="badge badge-primary">{{ getMediaType(evt.tags) }}</span>
+          <span class="badge badge-primary">{{ getMediaType(evt.tags) === 'episode' ? 'show' : getMediaType(evt.tags) }}</span>
           <span class="timeline-media-title">{{ getMediaTitle(evt.tags) }}</span>
           <span v-if="getTagValue(evt.tags, 'rating')" class="timeline-rating">
             ★ {{ getTagValue(evt.tags, 'rating') }}/10

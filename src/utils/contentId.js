@@ -28,6 +28,23 @@ export function norm(value) {
 }
 
 /**
+ * Strips episode/season suffixes from show titles to ensure clean canonical anchoring.
+ * E.g. "Stranger Things - S1E6: Chapter Six: The Monster" -> "Stranger Things"
+ *      "Breaking Bad - Season 1" -> "Breaking Bad"
+ * @param {string} title
+ * @returns {string}
+ */
+export function cleanShowTitle(title) {
+  if (!title || typeof title !== 'string') return ''
+  let clean = title.trim()
+  clean = clean.replace(/\s+-\s+S\d+E\d+.*$/i, '')
+  clean = clean.replace(/\s+-\s+Season\s+\d+.*$/i, '')
+  clean = clean.replace(/\s+\(S\d+E\d+\).*$/i, '')
+  clean = clean.replace(/:\s*S\d+E\d+.*$/i, '')
+  return clean.trim()
+}
+
+/**
  * Builds the canonical string for a media item
  * @param {Object} params
  * @param {'movie'|'show'|'music'|'episode'} params.type
@@ -65,7 +82,8 @@ export function buildCanonicalString({ type, title, year, artist = '', qualifier
   // Episodes anchor directly to their parent show's contentid (spec):
   // position travels via season/episode tags + d-tag suffix, never the hash.
   const hashType = normType === 'episode' ? 'show' : normType
-  let canonical = `${hashType}|${normTitle}|${normYear}`
+  const cleanTitle = hashType === 'show' ? cleanShowTitle(title) : title
+  let canonical = `${hashType}|${norm(cleanTitle)}|${normYear}`
   if (normQualifier) {
     canonical += `|${normQualifier}`
   }
