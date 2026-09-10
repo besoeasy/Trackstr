@@ -345,7 +345,9 @@ onMounted(async () => {
     executeSearch()
   }
   loadPopularFromNostr()
-  loadRecommendations()
+  if (authStore.isAuthenticated) {
+    loadRecommendations()
+  }
 
   if (route.query.focus === 'search' || route.query.track === 'true') {
     setTimeout(() => {
@@ -353,6 +355,17 @@ onMounted(async () => {
     }, 150)
   }
 })
+
+watch(
+  () => authStore.isAuthenticated,
+  (isAuth) => {
+    if (isAuth) {
+      loadRecommendations()
+    } else {
+      recommendations.value = { movies: [], series: [], music: [] }
+    }
+  }
+)
 
 watch(
   () => [route.query.focus, route.query.track],
@@ -549,7 +562,7 @@ watch(
       </section>
 
       <!-- Recommended for You (3 rows: movies, series, music) -->
-      <section class="section recommendations-section">
+      <section v-if="authStore.isAuthenticated" class="section recommendations-section">
         <div class="section-header">
           <div>
             <div class="title-with-badge">
