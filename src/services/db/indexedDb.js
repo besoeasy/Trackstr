@@ -64,6 +64,31 @@ export function openDb() {
 }
 
 /**
+ * Safely converts any value (including Vue reactive proxies) into a cloneable plain object/array.
+ * Prevents "DOMException: Failed to execute 'put' on 'IDBObjectStore': #<Object> could not be cloned".
+ * @param {*} val
+ * @returns {*}
+ */
+export function toPlainObject(val) {
+  if (val === null || typeof val !== 'object') return val
+  try {
+    return JSON.parse(JSON.stringify(val))
+  } catch {
+    if (Array.isArray(val)) {
+      return val.map((item) => toPlainObject(item))
+    }
+    const clean = {}
+    for (const key of Object.keys(val)) {
+      const v = val[key]
+      if (typeof v !== 'function' && typeof v !== 'symbol') {
+        clean[key] = typeof v === 'object' && v !== null ? toPlainObject(v) : v
+      }
+    }
+    return clean
+  }
+}
+
+/**
  * Saves imported media items into the browser database
  * @param {Array<Object>} items
  * @returns {Promise<void>}
@@ -71,9 +96,11 @@ export function openDb() {
 export async function saveImportedItems(items) {
   if (!Array.isArray(items) || items.length === 0) return
 
+  const cleanItems = toPlainObject(items)
+
   const db = await openDb()
   if (!db) {
-    items.forEach((it) => {
+    cleanItems.forEach((it) => {
       if (it.contentId) memoryItems.set(it.contentId, it)
     })
     return
@@ -83,9 +110,9 @@ export async function saveImportedItems(items) {
     const tx = db.transaction([STORE_ITEMS], 'readwrite')
     const store = tx.objectStore(STORE_ITEMS)
 
-    for (const item of items) {
+    for (const item of cleanItems) {
       if (item.contentId) {
-        store.put(item)
+        store.put(toPlainObject(item))
       }
     }
 
@@ -122,9 +149,11 @@ export async function getImportedItems() {
 export async function queueSyncItems(queueEntries) {
   if (!Array.isArray(queueEntries) || queueEntries.length === 0) return
 
+  const cleanEntries = toPlainObject(queueEntries)
+
   const db = await openDb()
   if (!db) {
-    queueEntries.forEach((entry) => {
+    cleanEntries.forEach((entry) => {
       memoryQueue.set(entry.id, entry)
     })
     return
@@ -134,8 +163,8 @@ export async function queueSyncItems(queueEntries) {
     const tx = db.transaction([STORE_QUEUE], 'readwrite')
     const store = tx.objectStore(STORE_QUEUE)
 
-    for (const entry of queueEntries) {
-      store.put(entry)
+    for (const entry of cleanEntries) {
+      store.put(toPlainObject(entry))
     }
 
     tx.oncomplete = () => resolve()
@@ -192,7 +221,7 @@ export async function updateQueueItem(id, updates) {
     getReq.onsuccess = () => {
       const existing = getReq.result
       if (existing) {
-        store.put({ ...existing, ...updates, updatedAt: Date.now() })
+        store.put(toPlainObject({ ...existing, ...updates, updatedAt: Date.now() }))
       }
       resolve()
     }
@@ -264,7 +293,7 @@ export async function resetFailedItems() {
         entry.syncStatus = 'pending'
         entry.error = null
         entry.attempts = 0
-        store.put(entry)
+        store.put(toPlainObject(entry))
       })
       resolve(failed.length)
     }

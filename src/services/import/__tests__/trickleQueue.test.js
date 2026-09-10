@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { ref, reactive } from 'vue'
 
 const nostrStubs = vi.hoisted(() => ({
   signEvent: vi.fn((tmpl) => Promise.resolve({ ...tmpl, id: 'sig123', sig: 'sig456' })),
@@ -11,7 +12,7 @@ vi.mock('@/services/nostr/client.js', () => ({
 }))
 
 import { trickleQueue } from '../trickleQueue.js'
-import { clearImportData, getQueueStats } from '@/services/db/indexedDb.js'
+import { clearImportData, getQueueStats, toPlainObject } from '@/services/db/indexedDb.js'
 
 describe('TrickleQueue Service', () => {
   beforeEach(async () => {
@@ -117,4 +118,45 @@ describe('TrickleQueue Service', () => {
     expect(stats.synced).toBe(0)
     expect(stats.pending).toBe(1)
   })
+
+  it('toPlainObject sanitizes Vue reactive proxy objects so structuredClone succeeds', () => {
+    const reactiveItem = reactive({
+      title: 'Fight Club',
+      year: 1999,
+      ratings: [10, 9],
+      nested: { director: 'David Fincher' },
+    })
+
+    // Native structuredClone fails on raw Vue reactive proxy
+    expect(() => structuredClone(reactiveItem)).toThrow()
+
+    // toPlainObject strips the proxy wrapper
+    const plain = toPlainObject(reactiveItem)
+    expect(() => structuredClone(plain)).not.toThrow()
+    expect(plain.title).toBe('Fight Club')
+    expect(plain.nested.director).toBe('David Fincher')
+  })
+
+  it('safely handles Vue reactive proxy items in enqueueItems without clone errors', async () => {
+    const reactiveItemsRef = ref([
+      {
+        contentId: '55'.repeat(32),
+        type: 'movie',
+        name: 'The Matrix',
+        year: 1999,
+        status: 'completed',
+        rating: 10,
+        review: 'Groundbreaking sci-fi classic',
+        spoiler: false,
+      },
+    ])
+
+    // Passing reactive proxy array directly to enqueueItems must not throw
+    const res = await trickleQueue.enqueueItems(reactiveItemsRef.value)
+    expect(res.enqueuedCount).toBe(3)
+
+    const stats = await getQueueStats()
+    expect(stats.total).toBe(3)
+  })
 })
+

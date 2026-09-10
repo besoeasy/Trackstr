@@ -165,13 +165,16 @@ async function handleImportToLibrary() {
 
   errorMessage.value = ''
   try {
+    // Convert reactive list to plain vanilla JavaScript objects to prevent Vue proxy clone errors in IndexedDB
+    const plainItems = JSON.parse(JSON.stringify(consolidatedList.value))
+
     // 1. Immediately inject into Pinia media store & local storage
-    mediaStore.importLocalMedia(consolidatedList.value, authStore.pubkey)
+    mediaStore.importLocalMedia(plainItems, authStore.pubkey)
 
     // 2. Enqueue into IndexedDB for paced background relay sync
-    const { enqueuedCount } = await trickleQueue.enqueueItems(consolidatedList.value)
+    const { enqueuedCount } = await trickleQueue.enqueueItems(plainItems)
 
-    importSuccessMessage.value = `Successfully saved ${consolidatedList.value.length} media items to your local library! You can start viewing them immediately.`
+    importSuccessMessage.value = `Successfully saved ${plainItems.length} media items to your local library! You can start viewing them immediately.`
 
     // 3. Automatically start the trickle queue if authenticated
     if (authStore.isAuthenticated) {

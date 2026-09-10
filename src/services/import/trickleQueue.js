@@ -96,13 +96,16 @@ class TrickleQueue {
       return { enqueuedCount: 0 }
     }
 
+    // Ensure items are plain, cloneable objects without Vue reactive proxies
+    const plainItems = JSON.parse(JSON.stringify(items))
+
     // Save full items to browser database
-    await saveImportedItems(items)
+    await saveImportedItems(plainItems)
 
     const queueEntries = []
     const now = Date.now()
 
-    for (const item of items) {
+    for (const item of plainItems) {
       if (!item.contentId) continue
 
       const mediaRef = {
