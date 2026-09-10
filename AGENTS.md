@@ -1,7 +1,7 @@
 # Trackstr — AGENTS.md
 
 Trackstr is an open, Nostr-powered media tracking + social platform (movies, shows, music).
-Stack: Vue.js + Vite + JavaScript. Media storage: IPFS via [Originless](https://github.com/besoeasy/Originless) (free public instance: https://originless.gupt.app/). Metadata: TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
+Stack: Vue.js + Vite + JavaScript. Metadata: Wikipedia, TVMaze, TMDB, MusicBrainz (client UI presentation only). Integrations: Spotify, Plex, Jellyfin.
 Portable social layer: activity, ratings, reviews, social graph live on Nostr, owned by the user's identity.
 
 ## Architecture Philosophy: Mutable State vs. Immutable Logs
@@ -10,7 +10,7 @@ Trackstr divides all data into two fundamental categories to ensure permanent pe
 
 | Data Category | Purpose | Nostr Event Pattern | Why |
 |---|---|---|---|
-| **Mutable State** (Watch/listening status, current rating, watchlists, metadata) | Current status or latest value per media item | **NIP-33 Parameterized Replaceable Events** (`kind: 30000..39999`) with `["d", "<d-tag>"]` | Relays automatically overwrite older versions per `(pubkey, kind, d)`. Zero relay bloat, zero auto-renew needed. |
+| **Mutable State** (Watch/listening status, current rating, watchlists) | Current status or latest value per media item | **NIP-33 Parameterized Replaceable Events** (`kind: 30000..39999`) with `["d", "<d-tag>"]` | Relays automatically overwrite older versions per `(pubkey, kind, d)`. Zero relay bloat, zero auto-renew needed. |
 | **Immutable Logs** (Listening history, scrobbles, check-ins, written reviews) | Point-in-time historical diary entries | **Regular Kinds** (`kind: 1000..9999`) with **NO expiration** tag | Scrobbles and reviews are historical diary entries; they remain permanent forever without maintenance. |
 | **Deletions** | Removing an event | **NIP-09 Deletion Requests** (`kind: 5`) | Native protocol deletion standard across relays and clients. |
 
@@ -29,7 +29,7 @@ Trackstr divides all data into two fundamental categories to ensure permanent pe
 ## Event Kinds & Schema
 
 Trackstr uses allocated custom kind ranges:
-- **Mutable State (Parameterized Replaceable, NIP-33: `30000 <= n < 40000`)**: Range `35400–35403`
+- **Mutable State (Parameterized Replaceable, NIP-33: `30000 <= n < 40000`)**: Range `35400, 35402`
 - **Immutable Logs (Regular, NIP-01: `1000 <= n < 10000`)**: Range `5401–5402`
 
 | Item | Category | Kind | Content / key tags |
@@ -38,11 +38,10 @@ Trackstr uses allocated custom kind ranges:
 | **Written Review** (Body + score at time) | Immutable Log (Regular) | `5401` | `content` = review body; `["d", "<contentid>"]`, `["contentid", "<64-hex>"]`, `["rating", "8"]` optional, `["spoiler", "1"]` optional |
 | **Watch / Listening Status** (Current state) | Mutable State (NIP-33) | `35402` | `content` = optional detail/JSON; `["d", "<d-tag>"]`, `["contentid", "<64-hex>"]`, `["status", "plan-to-watch\|watching\|completed\|on-hold\|dropped\|listening\|plan-to-listen"]`, `["progress", "…"]` optional |
 | **Activity Log / Scrobble / Check-in** | Immutable Log (Regular) | `5402` | `content` = optional detail/JSON; `["d", "<contentid>"]`, `["contentid", "<64-hex>"]`, `["status", "watching\|completed\|listening"]`, `["progress", "…"]` optional |
-| **Media Metadata** (Community curation) | Mutable State (NIP-33) | `35403` | `content` = synopsis or structured JSON (cast, crew); `["d", "<contentid>"]`, `["contentid", "<64-hex>"]`, `["poster", "ipfs://<CID>"]` optional, `["banner", "ipfs://<CID>"]` optional, `["genre", "…"]` optional, `["lang", "en"]` optional |
 
 ### Kind Rules & Identity Keys
 
-1. **Mutable State (`35400`, `35402`, `35403`)**:
+1. **Mutable State (`35400`, `35402`)**:
    - Addressable/Replaceable by `(kind, pubkey, d-tag)` per NIP-33.
    - **`d-tag` Construction**:
      - Movies, shows, or music albums: `["d", "<contentid>"]`.
@@ -88,7 +87,7 @@ Content identity (`contentid` — provider-free primary key):
 
 ### Publishing & Updates
 
-1. **Mutable State (`35400`, `35402`, `35403`)**:
+1. **Mutable State (`35400`, `35402`)**:
    - Built as NIP-33 parameterized replaceable events with `["d", "<d-tag>"]`.
    - To create or edit: Publish with the current timestamp (`created_at = now`). Relays replace any previous event with matching `(pubkey, kind, d)`.
    - No custom anchor tag, no auto-renew background jobs, and no NIP-40 expiration.
@@ -137,26 +136,8 @@ Example Immutable Review Event (`kind: 5401`):
 
 Instead of fragile, expiring client-side tombstones, Trackstr uses native Nostr **NIP-09 deletion requests** (`kind: 5`):
 1. For regular events (`5401`, `5402`): Emit a `kind: 5` event with an `["e", "<event-id>"]` tag.
-2. For replaceable events (`35400`, `35402`, `35403`): Emit a `kind: 5` event with an `["a", "<kind>:<pubkey>:<d-tag>"]` coordinate tag.
+2. For replaceable events (`35400`, `35402`): Emit a `kind: 5` event with an `["a", "<kind>:<pubkey>:<d-tag>"]` coordinate tag.
 3. Compliant relays delete or suppress the referenced events; clients filter them out upon receiving the deletion notice.
-
----
-
-### Media Content Aggregation & Bootstrapping (Kind 35403)
-
-Decentralized media metadata curation allows users to publish and share posters, backdrops, synopses, and cast/crew details directly on Nostr without relying on centralized APIs:
-
-- Each contributor publishes an addressable event with kind `35403` for a `contentid`, carrying their proposed metadata (`poster`, `banner`, `genre`, `lang`, and synopsis/cast in `content`).
-- **Aggregation & Web of Trust (WoT)**: Clients merge fields across publishers for the same `contentid`:
-  1. Prioritize metadata published by authors in the user's follow list (NIP-02 Web of Trust).
-  2. Fall back to community consensus (highest zapped, most liked, or most frequent values).
-  3. Support language filtering via `["lang", "en"]`, `["lang", "es"]`, etc.
-- **Bootstrapping & One-Click Seeding (Client UX)**:
-  To solve the cold-start problem without centralized scrapers or relay flooding:
-  1. **Check presence**: When a user logs or views media, the client checks if any `kind: 35403` events exist on Nostr for that `contentid`.
-  2. **Contribute prompt (only if missing)**: If no `35403` metadata event is present on relays for that `contentid`, the client presents a "Contribute to Nostr" / "Seed Metadata" action.
-  3. **Fetch & publish**: On user confirmation, the client fetches artwork, synopsis, and cast from external APIs (TMDB, MusicBrainz), constructs the provider-free `35403` event, and the user signs and publishes it with their Nostr identity.
-  4. **Once present, prompt hides**: If metadata already exists for that `contentid`, the prompt is suppressed to prevent duplicate relay spam.
 
 ---
 
@@ -168,24 +149,18 @@ Decentralized media metadata curation allows users to publish and share posters,
   - Music: `"plan-to-listen"`, `"listening"`, `"completed"`.
 - **Local-first delta sync**:
   - Clients cache winning items in local storage (e.g. IndexedDB).
-  - Background delta-sync queries relays with `{"kinds": [35400, 35402, 35403, 5401, 5402], "since": <last_synced_unix_timestamp>}` for instant UI loading without relay wait.
-- **Media storage & uploads (IPFS via Originless)**:
-  - All media uploads (posters, backdrops/banners, artwork, avatars) MUST use IPFS content addressing via [Originless](https://github.com/besoeasy/Originless) (free public instance for uploading media: https://originless.gupt.app/).
-  - Event tags stick strictly to `ipfs://<CID>` (e.g. `["poster", "ipfs://bafybeic..."]`).
-  - No centralized HTTP/HTTPS URLs (AWS S3, Imgur, Cloudinary, etc.) are allowed in event tags for uploaded media—Trackstr is decentralized and media assets must remain permanent and content-addressed.
-  - Client UIs resolve `ipfs://<CID>` via local IPFS nodes or gateway URLs (e.g. Originless gateway, https://originless.gupt.app/) at presentation time.
+  - Background delta-sync queries relays with `{"kinds": [35400, 35402, 5401, 5402], "since": <last_synced_unix_timestamp>}` for instant UI loading without relay wait.
 
 ---
 
 ### Agent Checklist (Every Diff Touching Nostr)
 
-- [ ] Use **NIP-33 Parameterized Replaceable Kinds (`35400`, `35402`, `35403`)** for mutable state; ensure `["d", "<d-tag>"]` is set properly (`<contentid>` or `<contentid>:s<season>e<episode>`).
+- [ ] Use **NIP-33 Parameterized Replaceable Kinds (`35400`, `35402`)** for mutable state; ensure `["d", "<d-tag>"]` is set properly (`<contentid>` or `<contentid>:s<season>e<episode>`).
 - [ ] Use **Regular Kinds (`5401`, `5402`)** for immutable logs (reviews, scrobbles/check-ins). **Do NOT add NIP-40 expiration tags** (`["expiration", ...]`).
 - [ ] Every event carries exactly one `["trackstr", "<app-id>"]` app attribution tag.
 - [ ] Every event with a media ref carries a valid `contentid` computed per the scheme (`norm()` byte-exact) and a matching `["d", "<contentid>"]` tag for relay filtering.
 - [ ] No proprietary IDs (TMDB, IMDb, MBID) are tagged on Nostr events; join strictly on `contentid`.
 - [ ] No redundant `t` tags are emitted (`kind` + `trackstr` tag fully namespace the event).
-- [ ] Media asset tags (`poster`, `banner`, etc.) stick strictly to `ipfs://<CID>` format via Originless.
 - [ ] Activity events use canonical status strings (`plan-to-watch`, `watching`, `completed`, `on-hold`, `dropped`, `plan-to-listen`, `listening`).
 - [ ] Deletions use standard **NIP-09 (`kind: 5`)** deletion events referencing event ID or addressable coordinate.
 

@@ -120,9 +120,11 @@ async function runTest() {
 
     let mobileModal = await page.$('.review-modal')
     if (!mobileModal) {
-      const btn = await page.$('.add-review-btn')
-      if (btn) await btn.click()
-      await new Promise((r) => setTimeout(r, 400))
+      await page.evaluate(() => {
+        const btn = document.querySelector('.add-review-btn')
+        if (btn) btn.click()
+      })
+      await page.waitForSelector('.review-modal', { timeout: 4000 }).catch(() => null)
       mobileModal = await page.$('.review-modal')
     }
 

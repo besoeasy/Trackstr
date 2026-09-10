@@ -5,7 +5,6 @@ import {
   KINDS,
   buildRatingEvent,
   buildStatusEvent,
-  buildMediaMetadataEvent,
   buildReviewEvent,
   buildActivityLogEvent,
   buildDeletionEvent,
@@ -23,7 +22,6 @@ export const useMediaStore = defineStore('media', () => {
   const ratings = ref({}) // key: dTag -> { rating, eventId, createdAt, media }
   const reviews = ref([]) // Array of kind 5401 events
   const activityLogs = ref([]) // Array of kind 5402 events
-  const communityMetadata = ref({}) // key: contentId -> { poster, banner, genres, overview, lang, author, createdAt }
   const mediaLibrary = ref({}) // key: contentId -> base media object
   const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
@@ -46,7 +44,6 @@ export const useMediaStore = defineStore('media', () => {
         ratings.value = data.ratings || {}
         reviews.value = data.reviews || []
         activityLogs.value = data.activityLogs || []
-        communityMetadata.value = data.communityMetadata || {}
         mediaLibrary.value = data.mediaLibrary || {}
         follows.value = data.follows || {}
         lastSyncedAt.value = data.lastSyncedAt || 0
@@ -64,9 +61,6 @@ export const useMediaStore = defineStore('media', () => {
         })
         activityLogs.value.forEach((a) => {
           if (a?.contentId) nostrContentIds.value[a.contentId] = 1
-        })
-        Object.keys(communityMetadata.value).forEach((cId) => {
-          nostrContentIds.value[cId] = 1
         })
         // Heal any episode types in mediaLibrary cache
         Object.keys(mediaLibrary.value).forEach((cid) => {
@@ -88,7 +82,6 @@ export const useMediaStore = defineStore('media', () => {
         ratings: ratings.value,
         reviews: reviews.value.slice(0, 500),
         activityLogs: activityLogs.value.slice(0, 500),
-        communityMetadata: communityMetadata.value,
         mediaLibrary: mediaLibrary.value,
         follows: follows.value,
         lastSyncedAt: lastSyncedAt.value,
@@ -131,14 +124,6 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
-  /**
-   * Web-of-Trust preference tier for community metadata: own > followed > other.
-   */
-  function authorTier(pubkey) {
-    if (pubkey && authStore.pubkey && pubkey === authStore.pubkey) return 3
-    if (pubkey && follows.value[pubkey]) return 2
-    return 1
-  }
 
   /**
    * Episode records fold into their parent show: they share the show's
@@ -224,35 +209,6 @@ export const useMediaStore = defineStore('media', () => {
           createdAt: evt.created_at,
           pubkey: evt.pubkey,
           media,
-        }
-      }
-    } else if (evt.kind === KINDS.MEDIA_METADATA) {
-      const posterTag = evt.tags.find((t) => t[0] === 'poster')?.[1]
-      const bannerTag = evt.tags.find((t) => t[0] === 'banner')?.[1]
-      const genres = evt.tags.filter((t) => t[0] === 'genre').map((t) => t[1])
-      const langTag = evt.tags.find((t) => t[0] === 'lang')?.[1] || 'en'
-      const current = communityMetadata.value[media.contentId]
-      const tier = authorTier(evt.pubkey)
-      const currentTier = current ? authorTier(current.author) : -1
-      const sameTierNewer =
-        current &&
-        tier === currentTier &&
-        (evt.created_at > current.createdAt ||
-          (evt.created_at === current.createdAt && (evt.id || '') < (current.eventId || '')))
-
-      // Web-of-Trust preference (own > followed > other); within a tier the
-      // newest wins. Sparse newer events merge over — never wipe — richer ones.
-      if (!current || tier > currentTier || sameTierNewer) {
-        communityMetadata.value[media.contentId] = {
-          contentId: media.contentId,
-          poster: posterTag || current?.poster || '',
-          banner: bannerTag || current?.banner || '',
-          genres: genres.length ? genres : current?.genres || [],
-          overview: evt.content || current?.overview || '',
-          lang: langTag,
-          author: evt.pubkey,
-          createdAt: evt.created_at,
-          eventId: evt.id,
         }
       }
     } else if (evt.kind === KINDS.REVIEW) {
@@ -352,11 +308,6 @@ export const useMediaStore = defineStore('media', () => {
           delete ratings.value[`${targetPubkey}:${dTag}`]
         } else if (kind === KINDS.STATUS) {
           delete statuses.value[`${targetPubkey}:${dTag}`]
-        } else if (kind === KINDS.MEDIA_METADATA) {
-          const current = communityMetadata.value[base]
-          if (current && String(current.author || '').toLowerCase() === deleter) {
-            delete communityMetadata.value[base]
-          }
         }
         pruneProvenance(base)
       }
@@ -409,7 +360,7 @@ export const useMediaStore = defineStore('media', () => {
     try {
       const filter = {
         authors: [userPubkey],
-        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
+        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
         limit: 500,
       }
 
@@ -448,7 +399,7 @@ export const useMediaStore = defineStore('media', () => {
       // Match both the NIP-33 d-tag (#d) and the base contentid tag
       // (#contentid): episode mutables carry suffixed d-tags, so a bare-#d
       // query alone would miss all episode activity for a show.
-      const kinds = [KINDS.MEDIA_METADATA, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.STATUS, KINDS.RATING]
+      const kinds = [KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.STATUS, KINDS.RATING]
       const events = await nostrClient.queryEvents([
         { '#d': [contentId], kinds, limit: 50 },
         { '#contentid': [contentId], kinds, limit: 50 },
@@ -673,23 +624,6 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Seeds community metadata to Nostr (Kind 35403)
-   */
-  async function seedMetadata(media, metadata) {
-    if (!authStore.isAuthenticated) {
-      throw new Error('Please connect your Nostr extension to seed metadata.')
-    }
-
-    const metadataTemplate = buildMediaMetadataEvent(media, metadata)
-    const signed = await nostrClient.signEvent(metadataTemplate)
-    await publishOrThrow(signed)
-    ingestEvent(signed)
-
-    saveToLocalStorage()
-    return signed
-  }
-
-  /**
    * Deletes a mutable or immutable event via NIP-09. Local state is echoed
    * kind-aware: NIP-33 identity is (kind, pubkey, d-tag), so a status delete
    * never wipes the rating sharing its d-tag (and vice versa).
@@ -719,8 +653,6 @@ export const useMediaStore = defineStore('media', () => {
         delete ratings.value[`${ownPubkey}:${dTag}`]
       } else if (kind === KINDS.STATUS) {
         delete statuses.value[`${ownPubkey}:${dTag}`]
-      } else if (kind === KINDS.MEDIA_METADATA) {
-        delete communityMetadata.value[base]
       }
       pruneProvenance(base)
     }
@@ -747,8 +679,7 @@ export const useMediaStore = defineStore('media', () => {
       Object.values(statuses.value).some((s) => (s.contentId || '').split(':')[0] === baseContentId) ||
       Object.values(ratings.value).some((r) => (r.contentId || '').split(':')[0] === baseContentId) ||
       reviews.value.some((r) => r.contentId === baseContentId) ||
-      activityLogs.value.some((a) => a.contentId === baseContentId) ||
-      Boolean(communityMetadata.value[baseContentId])
+      activityLogs.value.some((a) => a.contentId === baseContentId)
     if (!stillReferenced) {
       delete nostrContentIds.value[baseContentId]
     }
@@ -769,8 +700,8 @@ export const useMediaStore = defineStore('media', () => {
     return ratings.value[mediaStateKey(contentId, season, episode, pubkey)]?.rating ?? null
   }
 
-  function getMediaMetadata(contentId) {
-    return communityMetadata.value[contentId] || null
+  function getMediaMetadata(_contentId) {
+    return null
   }
 
   function getReviewsForMedia(contentId) {
@@ -1008,21 +939,6 @@ export const useMediaStore = defineStore('media', () => {
       })
     }
 
-    // 5. From community metadata (kind 35403): fill in whatever the
-    // event-derived item is still missing (poster, banner, overview, genres).
-    Object.entries(communityMetadata.value).forEach(([cId, meta]) => {
-      if (items.has(cId)) {
-        const existing = items.get(cId)
-        items.set(cId, {
-          ...existing,
-          poster: existing.poster || meta.poster,
-          banner: existing.banner || meta.banner,
-          overview: existing.overview || meta.overview,
-          genres: existing.genres && existing.genres.length ? existing.genres : meta.genres,
-        })
-      }
-    })
-
     return Array.from(items.values())
   }
 
@@ -1223,7 +1139,6 @@ export const useMediaStore = defineStore('media', () => {
     ratings,
     reviews,
     activityLogs,
-    communityMetadata,
     mediaLibrary,
     follows,
     isSyncing,
@@ -1235,7 +1150,6 @@ export const useMediaStore = defineStore('media', () => {
     setStatus,
     setRating,
     addReview,
-    seedMetadata,
     deleteTrackstrEvent,
     getMediaStatus,
     getMediaRating,

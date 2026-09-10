@@ -6,7 +6,6 @@ import ActivityView from '@/views/ActivityView.vue'
 import ConnectView from '@/views/ConnectView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import TrackMediaView from '@/views/TrackMediaView.vue'
-import SeedMetadataView from '@/views/SeedMetadataView.vue'
 import ImportView from '@/views/ImportView.vue'
 
 const routes = [
@@ -42,11 +41,6 @@ const routes = [
     name: 'track',
     alias: '/add',
     component: TrackMediaView,
-  },
-  {
-    path: '/media/:contentId/seed',
-    name: 'seed-metadata',
-    component: SeedMetadataView,
   },
   {
     path: '/media/:contentId',

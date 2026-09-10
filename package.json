@@ -59,7 +59,6 @@
     "test:empty-review": "node scripts/test-empty-review.js"
   },
   "dependencies": {
-    "@helia/verified-fetch": "^8.1.0",
     "nostr-tools": "^2.25.2",
     "pinia": "^4.0.2",
     "qrcode": "^1.5.4",

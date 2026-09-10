@@ -52,11 +52,6 @@ function ratingEvent({ pubkey = OWN, rating = '8', at = 1000, id = 'e1' }) {
   return { id, pubkey, created_at: at, kind: KINDS.RATING, tags: baseTags({ rating }), content: '' }
 }
 
-function metadataEvent({ pubkey = OWN, at = 1000, id = 'e1', poster = '', overview = '' }) {
-  const tags = baseTags()
-  if (poster) tags.push(['poster', poster])
-  return { id, pubkey, created_at: at, kind: KINDS.MEDIA_METADATA, tags, content: overview }
-}
 
 function setupStores() {
   localStorage.clear()
@@ -237,28 +232,7 @@ describe('inbound NIP-09 deletions', () => {
     expect(media.getMediaStatus(CID)).toBeNull()
   })
 
-  it('clears community metadata only when the deleter owns the winning version', async () => {
-    const { media } = setupStores()
-    stubs.queryEvents.mockResolvedValueOnce([
-      metadataEvent({ pubkey: OWN, at: 1000, id: 'm1', poster: 'ipfs://mine' }),
-    ])
-    await media.syncUserData(OWN)
-    expect(media.getMediaMetadata(CID)?.poster).toBe('ipfs://mine')
 
-    // Stranger's notice for their own (non-winning) version changes nothing.
-    stubs.queryEvents.mockResolvedValueOnce([
-      deletionByCoord(STRANGER, `35403:${STRANGER}:${CID}`, 'del1'),
-    ])
-    await media.syncUserData(OWN)
-    expect(media.getMediaMetadata(CID)?.poster).toBe('ipfs://mine')
-
-    // Your own notice clears it.
-    stubs.queryEvents.mockResolvedValueOnce([
-      deletionByCoord(OWN, `35403:${OWN}:${CID}`, 'del2'),
-    ])
-    await media.syncUserData(OWN)
-    expect(media.getMediaMetadata(CID)).toBeNull()
-  })
 
   it('never renders deletion notices as feed items', async () => {
     const { media } = setupStores()
@@ -293,33 +267,6 @@ describe('Nostr-only popular surface', () => {
   })
 })
 
-describe('follow-preferred community metadata', () => {
-  it('prefers a followed author over a newer stranger and merges sparse updates', async () => {
-    const { media } = setupStores()
-    // Follow list contains FOLLOWED.
-    stubs.queryEvents.mockResolvedValueOnce([
-      { id: 'f1', pubkey: OWN, created_at: 10, kind: 3, tags: [['p', FOLLOWED]], content: '' },
-    ])
-    await media.fetchFollows(OWN)
-
-    // Newer stranger seed with rich poster.
-    stubs.queryEvents.mockResolvedValueOnce([
-      metadataEvent({ pubkey: STRANGER, at: 2000, id: 'm1', poster: 'ipfs://stranger', overview: 'rich' }),
-    ])
-    await media.syncUserData(OWN)
-    expect(media.getMediaMetadata(CID)?.poster).toBe('ipfs://stranger')
-
-    // Older followed seed wins the tier but keeps fields the sparse event lacks.
-    stubs.queryEvents.mockResolvedValueOnce([
-      metadataEvent({ pubkey: FOLLOWED, at: 1000, id: 'm2', overview: 'followed take' }),
-    ])
-    await media.syncUserData(OWN)
-    const meta = media.getMediaMetadata(CID)
-    expect(meta?.author).toBe(FOLLOWED)
-    expect(meta?.overview).toBe('followed take')
-    expect(meta?.poster).toBe('ipfs://stranger')
-  })
-})
 
 describe('importLocalMedia()', () => {
   it('instantly populates statuses, ratings, reviews, and media library locally', () => {

@@ -5,15 +5,14 @@
 
 [![Live Demo](https://img.shields.io/badge/demo-trackstr.besoeasy.com-blue?style=flat-square)](https://trackstr.besoeasy.com/)
 [![Protocol](https://img.shields.io/badge/protocol-nostr-purple?style=flat-square)](https://nostr.com/)
-[![Storage](https://img.shields.io/badge/storage-IPFS%20via%20Originless-cyan?style=flat-square)](https://originless.gupt.app/)
 [![Stack](https://img.shields.io/badge/stack-Vue%203%20%7C%20Vite-emerald?style=flat-square)](https://vuejs.org/)
-[![Tests](https://img.shields.io/badge/tests-145%20passing-brightgreen?style=flat-square)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen?style=flat-square)](#-testing)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Open-lightgrey?style=flat-square)](#-license)
 
-Trackstr unites personal media tracking and an open media database into a single decentralized stack:
+Trackstr unites personal media tracking and an open social layer into a single decentralized stack:
 
 1. **For Users:** A unified personal tracker for **movies, TV shows & episodes, and music**. Track watchlists, rate (1–10), write spoiler-tagged reviews, scrobble your listening history, and follow friends. You own your identity, diary, and social graph via **Nostr** cryptographic keys.
-2. **For Developers & The Open Web:** An open-source, permissionless replacement for **IMDb and TMDB**. Instead of commercial APIs with paywalls, restrictive licenses, and rate limits, Trackstr provides a decentralized metadata layer. Media records are published directly to Nostr relays and pinned to **IPFS**, accessible to any developer without API keys or vendor lock-in.
+2. **For Developers & The Open Web:** An open, permissionless protocol. Your media diary, ratings, and social interactions live on Nostr relays, accessible to any developer without API keys or vendor lock-in.
 
 ---
 
@@ -25,8 +24,7 @@ Trackstr unites personal media tracking and an open media database into a single
 | **Data Ownership** | Proprietary servers; locked-in diaries | Proprietary datasets | **Self-sovereign** (owned by your Nostr pubkey) |
 | **Developer API** | Heavily restricted or non-existent | Paywalled tiers, rate limits, commercial licenses | **100% Free & Permissionless** (query any Nostr relay) |
 | **Content ID** | Proprietary internal identifiers | `tt...`, `tmdb_id` vendor lock-in | **Deterministic SHA-256** (`sha256(canonical_string)`) |
-| **Media Assets** | Centralized CDNs (fragile, subject to link rot) | Proprietary image CDNs | **Decentralized IPFS** (`ipfs://<CID>` via Originless) |
-| **Curation** | Centralized moderators | Centralized review queues | **Decentralized & Web-of-Trust (WoT)** |
+| **Media Metadata** | Proprietary & locked | Proprietary image CDNs & paywalls | **Open & Direct** (Wikipedia, TVMaze, TMDB, MusicBrainz) |
 
 ---
 
@@ -35,8 +33,7 @@ Trackstr unites personal media tracking and an open media database into a single
 - 🎬 **Unified Media Tracking:** Log films, follow TV series season-by-season and episode-by-episode, and scrobble music albums and tracks.
 - ⭐ **Ratings & Reviews:** 1–10 scale ratings (half-steps supported) and permanent, spoiler-tagged reviews.
 - 📋 **Flexible Libraries:** Manage statuses (`plan-to-watch`, `watching`, `completed`, `on-hold`, `dropped`, `plan-to-listen`, `listening`).
-- 🌐 **Open Media Database (Kind 35403):** Community-curated media metadata (titles, synopses, genres, artwork) stored on open relays — replacing proprietary database lookups.
-- 🖼️ **IPFS-Native Media:** Artwork and backdrops are content-addressed and pinned to IPFS via [Originless](https://originless.gupt.app/).
+- 🌐 **Open Media Presentation:** Client-side integration with open sources like Wikipedia, TVMaze, and MusicBrainz without proprietary vendor lock-in.
 - 🔐 **Cryptographic Auth:** Log in with NIP-07 browser extensions (Alby, nos2x) or local `nsec` keys. Zero email/password dependencies.
 - 🔌 **Open Aggregation:** Fallbacks and imports for Wikipedia, TVMaze, and MusicBrainz, with support for Spotify, Plex, and Jellyfin history.
 
@@ -44,7 +41,7 @@ Trackstr unites personal media tracking and an open media database into a single
 
 ## 🛠️ Developer Protocol & Architecture
 
-Trackstr replaces centralized REST APIs with open Nostr event kinds and deterministic content addressing. Any client can read, seed, and build on this data without authentication or API tokens.
+Trackstr replaces centralized REST APIs with open Nostr event kinds and deterministic content addressing. Any client can read and build on this data without authentication or API tokens.
 
 ### 1. Nostr Event Kinds
 
@@ -52,7 +49,6 @@ Trackstr replaces centralized REST APIs with open Nostr event kinds and determin
 | :--- | :--- | :--- | :--- |
 | **`35400`** | Parameterized Replaceable | NIP-33 | Mutable rating (1–10). Keyed by `d` tag (`contentid` or `contentid:s{season}e{episode}`). |
 | **`35402`** | Parameterized Replaceable | NIP-33 | Mutable watch/listen status and episode progress. |
-| **`35403`** | Parameterized Replaceable | NIP-33 | **Community Media Metadata (IMDb/TMDB replacement)** — synopses, genres, language, IPFS artwork. |
 | **`5401`** | Regular (Immutable) | NIP-01 | Permanent historical reviews (with spoiler flags & ratings). |
 | **`5402`** | Regular (Immutable) | NIP-01 | Permanent scrobble / check-in activity diary entries. |
 | **`5`** | Deletion | NIP-09 | Cryptographic deletion notices. |
@@ -74,9 +70,9 @@ contentId = sha256(canonicalString)
 
 *Normalization applies Unicode NFKC normalization, lowercase conversion, trimmed whitespace, and delimiter escaping (`\|`).*
 
-### 3. Querying Media Metadata (Zero API Keys)
+### 3. Querying Ratings & Watch History (Zero API Keys)
 
-Any developer or client can query media records directly from standard Nostr relays without accounts, tokens, or rate limits:
+Any developer or client can query user ratings, watch status, and reviews directly from standard Nostr relays without accounts, tokens, or rate limits:
 
 ```javascript
 import { SimplePool } from 'nostr-tools'
@@ -84,15 +80,11 @@ import { SimplePool } from 'nostr-tools'
 const pool = new SimplePool()
 const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
 
-// Query community-curated metadata for any title (replaces TMDB/IMDb API calls)
-const [metadataEvent] = await pool.querySync(relays, {
-  kinds: [35403],
+// Query all ratings and reviews for any title by contentId
+const events = await pool.querySync(relays, {
+  kinds: [35400, 5401],
   '#d': [contentId]
 })
-
-// Extract synopsis, genres, and IPFS poster
-const synopsis = metadataEvent.content
-const posterCid = metadataEvent.tags.find(t => t[0] === 'poster')?.[1] // ipfs://<CID>
 ```
 
 ---
@@ -160,10 +152,10 @@ The output in `dist/` can be served by any static host (Cloudflare Pages, Vercel
 Building with Cursor, Claude, ChatGPT, Copilot, or Antigravity? **You're in the right place.**
 
 Trackstr is engineered to be an ideal playground for AI-assisted development:
-- **Zero Backend Friction:** No database servers, no microservices, and no credentials to configure. Run `npm run dev` and your frontend connects directly to open Nostr relays and IPFS.
+- **Zero Backend Friction:** No database servers, no microservices, and no credentials to configure. Run `npm run dev` and your frontend connects directly to open Nostr relays.
 - **No API Keys or Paywalls:** Build media features without waiting for TMDB API approvals or paying IMDb enterprise licensing fees. Query and publish freely.
 - **Agent-Ready Context:** Hand [AGENTS.md](./AGENTS.md) directly to your AI coding agent — it contains the complete event schema, deterministic content ID hashing rules, and validation checklists.
-- **Sub-Second Test Feedback:** 145+ Vitest unit tests run in under 1 second (`npm test` or `npm run test:podman`), enabling fast, automated AI iteration loops.
+- **Sub-Second Test Feedback:** 150+ Vitest unit tests run in under 1 second (`npm test` or `npm run test:podman`), enabling fast, automated AI iteration loops.
 
 Have an idea for a custom theme, a mini player, a Raycast extension, a Discord bot, or a CLI? Fork it, prompt your favorite model, and ship it.
 

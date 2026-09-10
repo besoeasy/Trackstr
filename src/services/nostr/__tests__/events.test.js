@@ -5,7 +5,6 @@ import {
   buildBaseMediaTags,
   buildRatingEvent,
   buildStatusEvent,
-  buildMediaMetadataEvent,
   buildReviewEvent,
   buildActivityLogEvent,
   buildDeletionEvent,
@@ -89,8 +88,8 @@ describe('episode addressing', () => {
     expect(() => buildBaseMediaTags({ ...MOVIE, type: 'episode', season: 1 })).toThrow()
   })
 
-  it('keeps 35403 episode metadata off the show-level d-tag', () => {
-    const evt = buildMediaMetadataEvent(ep, { overview: 'x' })
+  it('keeps episode rating off the show-level d-tag', () => {
+    const evt = buildRatingEvent(ep, 8)
     expect(evt.tags).toContainEqual(['d', `${CID}:s1e3`])
   })
 })
@@ -104,20 +103,6 @@ describe('music + qualifier tags', () => {
   it('emits qualifier so hash splits are reproducible', () => {
     const tags = buildBaseMediaTags({ ...MOVIE, qualifier: 'Lynch' })
     expect(tags).toContainEqual(['qualifier', 'Lynch'])
-  })
-})
-
-describe('buildMediaMetadataEvent()', () => {
-  it('accepts ipfs:// artwork and omits missing art', () => {
-    const evt = buildMediaMetadataEvent(MOVIE, { poster: 'ipfs://bafy1', overview: 'x' })
-    expect(evt.tags).toContainEqual(['poster', 'ipfs://bafy1'])
-    expect(evt.tags.some((t) => t[0] === 'banner')).toBe(false)
-    expect(evt.tags).toContainEqual(['lang', 'en'])
-  })
-
-  it('rejects centralized artwork URLs', () => {
-    expect(() => buildMediaMetadataEvent(MOVIE, { poster: 'https://imgur.com/x.jpg' })).toThrow()
-    expect(() => buildMediaMetadataEvent(MOVIE, { banner: 'ipfs://' })).toThrow()
   })
 })
 

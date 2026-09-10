@@ -1,14 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getRelays, saveRelays, resetRelays, DEFAULT_RELAYS, MAX_RELAYS } from '@/services/nostr/relays.js'
-import { DEFAULT_ORIGINLESS_INSTANCE } from '@/services/originless.js'
 import { getTmdbApiKey } from '@/services/api/tmdb.js'
-import { normalizeRelayUrl, isSafeHttpUrl } from '@/utils/urls.js'
+import { normalizeRelayUrl } from '@/utils/urls.js'
 import { nostrClient } from '@/services/nostr/client.js'
 
 export const useSettingsStore = defineStore('settings', () => {
   const relays = ref(getRelays())
-  const originlessUrl = ref(localStorage.getItem('trackstr_originless_url') || DEFAULT_ORIGINLESS_INSTANCE)
   const tmdbApiKey = ref(getTmdbApiKey())
   const theme = ref(localStorage.getItem('trackstr_theme') || 'dark')
   const settingsError = ref('')
@@ -50,18 +48,6 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshRelayConnections()
   }
 
-  function setOriginlessUrl(url) {
-    settingsError.value = ''
-    const clean = (url || '').trim().replace(/\/+$/, '') || DEFAULT_ORIGINLESS_INSTANCE
-    if (!isSafeHttpUrl(clean)) {
-      settingsError.value = 'Originless node URL must be an https:// URL.'
-      return false
-    }
-    originlessUrl.value = clean
-    localStorage.setItem('trackstr_originless_url', clean)
-    return true
-  }
-
   function setTmdbApiKey(key) {
     const clean = key.trim()
     tmdbApiKey.value = clean
@@ -78,14 +64,12 @@ export const useSettingsStore = defineStore('settings', () => {
     relays,
     defaultRelays: DEFAULT_RELAYS,
     maxRelays: MAX_RELAYS,
-    originlessUrl,
     tmdbApiKey,
     theme,
     settingsError,
     addRelay,
     removeRelay,
     restoreDefaultRelays,
-    setOriginlessUrl,
     setTmdbApiKey,
     toggleTheme,
   }

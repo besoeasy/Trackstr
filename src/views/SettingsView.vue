@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { nostrClient } from '@/services/nostr/client.js'
-import { DEFAULT_ORIGINLESS_INSTANCE } from '@/services/originless.js'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
@@ -12,7 +11,6 @@ const authStore = useAuthStore()
 
 const newRelay = ref('')
 const tmdbKey = ref(settingsStore.tmdbApiKey)
-const originlessNode = ref(settingsStore.originlessUrl)
 const hasExtension = ref(nostrClient.hasExtension())
 const formError = ref('')
 const saveSuccess = ref(false)
@@ -40,18 +38,10 @@ function handleSaveSettings() {
   formError.value = ''
   saveSuccess.value = false
   settingsStore.setTmdbApiKey(tmdbKey.value)
-  if (!settingsStore.setOriginlessUrl(originlessNode.value)) {
-    formError.value = settingsStore.settingsError || 'Invalid Originless node URL.'
-    return
-  }
   saveSuccess.value = true
   setTimeout(() => {
     saveSuccess.value = false
   }, 2500)
-}
-
-function resetOriginless() {
-  originlessNode.value = DEFAULT_ORIGINLESS_INSTANCE
 }
 </script>
 
@@ -72,7 +62,7 @@ function resetOriginless() {
         </div>
         <h1 class="settings-title">Settings & Network</h1>
         <p class="settings-subtitle">
-          Configure Nostr relay connections, Originless decentralized media storage, and metadata providers.
+          Configure Nostr relay connections and metadata providers.
         </p>
       </header>
 
@@ -151,38 +141,6 @@ function resetOriginless() {
           <button class="btn btn-secondary" type="button" @click="handleAddRelay">
             Add Relay
           </button>
-        </div>
-      </section>
-
-      <!-- Section: Originless IPFS Node -->
-      <section class="settings-section">
-        <h2 class="section-heading">Originless IPFS Node (Media Storage)</h2>
-        <p class="section-desc">
-          Free public IPFS swarm instance for uploading posters, backdrops, and avatars without centralized APIs.
-        </p>
-        <div class="input-with-action">
-          <input
-            v-model="originlessNode"
-            type="text"
-            class="input"
-            placeholder="https://originless.gupt.app"
-          />
-          <button class="btn btn-secondary" type="button" @click="resetOriginless">
-            Default
-          </button>
-        </div>
-
-        <div class="resolver-sub-box">
-          <label class="form-label">IPFS Presentation Resolver</label>
-          <input
-            type="text"
-            class="input"
-            value="https://dweb.link/ipfs/CID"
-            disabled
-          />
-          <p class="form-hint">
-            Media assets stored on IPFS are resolved at presentation time via <code>https://dweb.link/ipfs/CID</code>.
-          </p>
         </div>
       </section>
 

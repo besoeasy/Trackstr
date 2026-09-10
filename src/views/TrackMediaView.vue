@@ -5,7 +5,7 @@ import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { computeContentId, buildDTag } from '@/utils/contentId.js'
 import { formatStatus } from '@/utils/formatters.js'
-import { resolveIpfsUrl, IPFS_GATEWAYS } from '@/services/originless.js'
+import { resolveIpfsUrl } from '@/composables/useIpfsImage.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
@@ -38,19 +38,15 @@ const isSubmitting = ref(false)
 const errorMsg = ref('')
 let suggestDebounceTimer = null
 
-// Per-suggestion gateway fallback: poster URI -> next gateway index to try
-const failedSuggestionGateways = reactive(new Map())
+const failedSuggestionPosters = reactive(new Set())
 
 function suggestionPosterUrl(poster) {
-  if (!poster) return ''
-  const idx = failedSuggestionGateways.get(poster) || 0
-  if (idx >= IPFS_GATEWAYS.length) return ''
-  return resolveIpfsUrl(poster, IPFS_GATEWAYS[idx])
+  if (!poster || failedSuggestionPosters.has(poster)) return ''
+  return resolveIpfsUrl(poster)
 }
 
 function onSuggestionPosterError(poster) {
-  const idx = (failedSuggestionGateways.get(poster) || 0) + 1
-  failedSuggestionGateways.set(poster, idx)
+  if (poster) failedSuggestionPosters.add(poster)
 }
 
 // Content ID & canonical string calculation

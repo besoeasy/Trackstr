@@ -11,7 +11,6 @@ export const KINDS = {
   DELETION: 5,
   RATING: 35400,
   STATUS: 35402,
-  MEDIA_METADATA: 35403,
   REVIEW: 5401,
   ACTIVITY_LOG: 5402,
 }
@@ -39,14 +38,6 @@ function assertRating(rating) {
     throw new Error('Rating must be a number from 1 to 10 (half-steps like 8.5 allowed).')
   }
   return n
-}
-
-function assertIpfsUri(value, label) {
-  if (!value) return ''
-  if (typeof value !== 'string' || !value.startsWith('ipfs://') || value.length <= 'ipfs://'.length) {
-    throw new Error(`${label} must be an ipfs://<CID> URI — centralized URLs are not allowed in event tags.`)
-  }
-  return value
 }
 
 /**
@@ -160,50 +151,6 @@ export function buildStatusEvent(media, status, progress = '', content = '') {
   }
 }
 
-/**
- * Builds a Community Media Metadata Event (kind: 35403)
- * @param {Object} media
- * @param {Object} metadata
- * @param {string} [metadata.poster] ipfs://<CID>
- * @param {string} [metadata.banner] ipfs://<CID>
- * @param {string[]} [metadata.genres]
- * @param {string} [metadata.lang='en']
- * @param {string} [metadata.overview] Synopsis or JSON
- * @returns {Object} Unsigned event template
- */
-export function buildMediaMetadataEvent(media, metadata = {}) {
-  const dTag = buildDTag({
-    contentId: assertContentId(media?.contentId),
-    season: media?.season,
-    episode: media?.episode,
-  })
-  const tags = [
-    ['d', dTag],
-    ...buildBaseMediaTags(media),
-  ]
-
-  const poster = assertIpfsUri(metadata.poster, 'Poster')
-  const banner = assertIpfsUri(metadata.banner, 'Banner')
-  if (poster) {
-    tags.push(['poster', poster])
-  }
-  if (banner) {
-    tags.push(['banner', banner])
-  }
-  if (Array.isArray(metadata.genres)) {
-    metadata.genres.forEach((genre) => {
-      if (genre) tags.push(['genre', genre])
-    })
-  }
-  tags.push(['lang', metadata.lang || 'en'])
-
-  return {
-    kind: KINDS.MEDIA_METADATA,
-    created_at: Math.floor(Date.now() / 1000),
-    tags,
-    content: metadata.overview || '',
-  }
-}
 
 /**
  * Builds an Immutable Review Event (kind: 5401)
