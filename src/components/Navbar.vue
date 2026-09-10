@@ -330,8 +330,12 @@ function handleLogout() {
 }
 
 @media (max-width: 768px) {
+  .nav-links {
+    display: none !important;
+  }
+
   .btn-desktop-only {
-    display: none;
+    display: none !important;
   }
 
   .nav-actions {

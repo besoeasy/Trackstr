@@ -162,7 +162,7 @@ function navigateToItem(contentId, media) {
           :disabled="mediaStore.isSyncing"
           @click="mediaStore.syncUserData()"
         >
-          <span>{{ mediaStore.isSyncing ? 'Syncing...' : '🔄 Delta Sync Relays' }}</span>
+          <span>{{ mediaStore.isSyncing ? 'Syncing...' : '🔄 Delta Sync' }}</span>
         </button>
       </div>
     </div>
@@ -512,12 +512,21 @@ function navigateToItem(contentId, media) {
 
   .header-actions {
     width: 100%;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
 
+  .header-actions .btn:first-child {
+    grid-column: span 2;
+    padding: 9px 14px;
+    font-weight: 600;
+  }
+
   .header-actions .btn {
-    flex: 1;
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 
   .tabs-bar {

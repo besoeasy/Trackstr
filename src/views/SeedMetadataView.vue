@@ -476,8 +476,41 @@ onMounted(async () => {
 }
 
 @media (max-width: 640px) {
+  .seed-page-wrap {
+    padding: 4px 0 80px;
+  }
+
   .seed-card {
-    padding: 24px 18px;
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
+  }
+
+  .seed-title {
+    font-size: 1.45rem;
+  }
+
+  .media-summary-card {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+  }
+
+  .summary-cid {
+    max-width: 100%;
+    word-break: break-all;
+    white-space: normal;
+  }
+
+  .seed-footer {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+
+  .seed-footer .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 42px;
   }
 }
 </style>

@@ -225,4 +225,22 @@ function navigateToDetail() {
   color: var(--accent-emerald);
   font-size: 0.72rem;
 }
+
+@media (max-width: 640px) {
+  .rec-card {
+    width: 130px;
+  }
+
+  .rec-card-body {
+    padding: 8px 10px;
+  }
+
+  .rec-title {
+    font-size: 0.85rem;
+  }
+
+  .rec-meta {
+    font-size: 0.7rem;
+  }
+}
 </style>

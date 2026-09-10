@@ -810,21 +810,47 @@ watch(
 
 @media (max-width: 640px) {
   .hero-search-section {
-    padding: 36px 0 24px;
+    padding: 20px 0 16px;
   }
 
   .hero-title {
-    font-size: 2.25rem;
+    font-size: clamp(1.6rem, 6vw, 2.1rem);
+    line-height: 1.15;
   }
 
   .hero-subtitle {
-    font-size: 0.95rem;
-    margin-bottom: 24px;
+    font-size: 0.88rem;
+    margin-bottom: 20px;
+    line-height: 1.5;
   }
 
   .search-input {
-    height: 48px;
-    font-size: 0.95rem;
+    height: 46px;
+    font-size: 0.92rem;
+  }
+
+  .search-tabs {
+    display: flex;
+    width: 100%;
+  }
+
+  .search-tabs .tab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 0.8rem;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .section-header .btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 

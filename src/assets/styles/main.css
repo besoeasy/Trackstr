@@ -49,6 +49,19 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
+  /* Compatibility aliases for legacy view variables */
+  --color-bg-alt: var(--bg-card-hover);
+  --color-bg-card: var(--bg-card);
+  --color-border: var(--border-subtle);
+  --color-text: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
   /* Subtle, Sharp Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.75);
@@ -180,6 +193,9 @@ input, select, textarea {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .main-content {
@@ -192,7 +208,7 @@ input, select, textarea {
 
 @media (max-width: 768px) {
   .main-content {
-    padding: 20px 16px calc(92px + var(--safe-bottom));
+    padding: 16px 16px calc(84px + var(--safe-bottom));
   }
 }
 
@@ -251,10 +267,12 @@ input, select, textarea {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-subtle);
-  height: 56px;
+  min-height: 56px;
+  height: auto;
   display: flex;
   align-items: center;
   padding-top: var(--safe-top);
+  width: 100%;
 }
 
 .navbar-inner {
@@ -266,6 +284,22 @@ input, select, textarea {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    min-height: calc(52px + var(--safe-top));
+  }
+
+  .navbar-inner {
+    padding: 0 16px;
+    gap: 10px;
+  }
+
+  .nav-links {
+    display: none !important;
+  }
 }
 
 .brand {
@@ -681,6 +715,10 @@ input, select, textarea {
   margin-bottom: 32px;
   overflow-x: auto;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  width: 100%;
+  min-width: 0;
 }
 
 .tabs-bar::-webkit-scrollbar {
@@ -869,11 +907,18 @@ input, select, textarea {
   left: 0;
   right: 0;
   z-index: 80;
-  background: rgba(0, 0, 0, 0.92);
+  background: rgba(10, 10, 10, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--border-subtle);
-  padding: 6px 12px calc(6px + var(--safe-bottom));
+  padding: 4px 8px calc(4px + var(--safe-bottom));
+  min-height: calc(56px + var(--safe-bottom));
+  box-sizing: border-box;
+}
+
+[data-theme='light'] .mobile-bottom-nav {
+  background: rgba(255, 255, 255, 0.94);
+  border-top-color: var(--border-subtle);
 }
 
 @media (max-width: 768px) {
@@ -889,7 +934,7 @@ input, select, textarea {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
@@ -900,12 +945,14 @@ input, select, textarea {
   font-size: 0.72rem;
   font-weight: 500;
   transition: all var(--transition-fast);
-  min-width: 52px;
+  min-width: 48px;
+  min-height: 44px;
   position: relative;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-nav-icon {
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   line-height: 1;
 }
 
@@ -915,15 +962,26 @@ input, select, textarea {
   color: #ffffff;
 }
 
+[data-theme='light'] .mobile-nav-item:hover,
+[data-theme='light'] .mobile-nav-item.router-link-active,
+[data-theme='light'] .mobile-nav-item.is-active {
+  color: #000000;
+}
+
 .mobile-nav-item.router-link-active::after,
 .mobile-nav-item.is-active::after {
   content: '';
   position: absolute;
-  bottom: 1px;
-  width: 14px;
+  bottom: 2px;
+  width: 16px;
   height: 2px;
   border-radius: var(--radius-full);
   background: #ffffff;
+}
+
+[data-theme='light'] .mobile-nav-item.router-link-active::after,
+[data-theme='light'] .mobile-nav-item.is-active::after {
+  background: #000000;
 }
 
 .mobile-nav-item.is-track-btn {
@@ -931,18 +989,25 @@ input, select, textarea {
 }
 
 .mobile-nav-item.is-track-btn .mobile-nav-icon-wrap {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: #ffffff;
   color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: -16px;
-  font-size: 1.3rem;
-  font-weight: 600;
+  margin-top: -18px;
+  font-size: 1.35rem;
+  font-weight: 700;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  border: 2px solid var(--bg-app);
+}
+
+[data-theme='light'] .mobile-nav-item.is-track-btn .mobile-nav-icon-wrap {
+  background: #000000;
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 /* Native App Back Button */

@@ -1550,9 +1550,80 @@ function formatEpCode(s, e) {
 
 /* Responsive */
 @media (max-width: 640px) {
+  .episodes-tracker-section {
+    padding: 16px;
+  }
+
+  .tracker-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .tracker-hero-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .up-next-card {
+    min-width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .up-next-name {
+    max-width: 100%;
+  }
+
+  .up-next-action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .quick-log-toggle-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .quick-log-panel {
+    padding: 14px;
+  }
+
+  .quick-log-form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .quick-log-field {
+    width: 100%;
+  }
+
+  .quick-log-submit-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .progress-info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .progress-actions {
+    width: 100%;
+  }
+
+  .progress-actions .batch-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
   .episode-card {
     grid-template-columns: 1fr;
     gap: 12px;
+    padding: 14px;
   }
 
   .ep-thumbnail-box {
@@ -1568,6 +1639,18 @@ function formatEpCode(s, e) {
 
   .ep-watch-toggle-btn {
     flex: 1;
+    min-height: 40px;
+  }
+
+  .season-tabs {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .season-tabs::-webkit-scrollbar {
+    display: none;
   }
 }
 </style>

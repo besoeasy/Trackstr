@@ -882,4 +882,55 @@ function navigateToLibrary() {
 .mt-4 {
   margin-top: var(--spacing-lg);
 }
+
+@media (max-width: 640px) {
+  .import-page-wrap {
+    padding: 4px 0 80px;
+  }
+
+  .import-card {
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
+  }
+
+  .import-title {
+    font-size: 1.5rem;
+  }
+
+  .import-dropzone {
+    padding: 24px 16px;
+  }
+
+  .dropzone-icon {
+    font-size: 2.2rem;
+  }
+
+  .dropzone-title {
+    font-size: 1.1rem;
+  }
+
+  .dropzone-hint {
+    font-size: 0.82rem;
+  }
+
+  .sync-card {
+    padding: 18px 14px;
+  }
+
+  .sync-controls {
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .sync-controls .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .sync-status-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
 </style>

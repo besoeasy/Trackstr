@@ -884,16 +884,25 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .track-page-wrap {
+    padding: 4px 0 80px;
+  }
+
   .track-card {
-    padding: 24px 18px;
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
+  }
+
+  .track-title {
+    font-size: 1.45rem;
   }
 
   .type-cards-grid {
-    gap: 8px;
+    gap: 6px;
   }
 
   .minimal-type-card {
-    padding: 12px 8px;
+    padding: 10px 6px;
   }
 
   .type-desc {
@@ -903,6 +912,30 @@ onMounted(() => {
   .form-row {
     flex-direction: column;
     gap: 10px;
+  }
+
+  .track-footer {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+
+  .track-footer .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 42px;
+  }
+
+  .preview-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .preview-code,
+  .contentid-chip {
+    width: 100%;
+    word-break: break-all;
+    white-space: normal;
   }
 }
 </style>

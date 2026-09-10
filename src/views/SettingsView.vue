@@ -390,6 +390,10 @@ function resetOriginless() {
   font-family: var(--font-mono);
   color: var(--text-secondary);
   font-size: 0.82rem;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 36px);
 }
 
 .add-relay-row {
@@ -443,8 +447,25 @@ function resetOriginless() {
 }
 
 @media (max-width: 640px) {
+  .settings-page-wrap {
+    padding: 4px 0 80px;
+  }
+
   .settings-card {
-    padding: 24px 18px;
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
+  }
+
+  .settings-title {
+    font-size: 1.45rem;
+  }
+
+  .relay-item {
+    gap: 8px;
+  }
+
+  .relay-url {
+    font-size: 0.76rem;
   }
 
   .add-relay-row {
@@ -453,6 +474,8 @@ function resetOriginless() {
 
   .add-relay-row .btn {
     width: 100%;
+    justify-content: center;
+    min-height: 42px;
   }
 
   .input-with-action {
@@ -461,15 +484,26 @@ function resetOriginless() {
 
   .input-with-action .btn {
     width: 100%;
+    justify-content: center;
+    min-height: 42px;
   }
 
   .settings-footer {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
   }
 
   .save-actions {
-    justify-content: space-between;
+    flex-direction: column;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .save-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 42px;
   }
 }
 </style>

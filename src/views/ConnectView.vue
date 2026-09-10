@@ -717,16 +717,38 @@ function handleContinueToApp() {
 }
 
 @media (max-width: 600px) {
+  .connect-page-wrap {
+    padding: 4px 0 80px;
+  }
+
   .connect-card {
-    padding: 24px 18px;
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
   }
 
   .connect-title {
-    font-size: 1.5rem;
+    font-size: 1.45rem;
   }
 
   .method-tabs {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .method-tab {
+    padding: 12px 14px;
+    min-height: 48px;
+  }
+
+  .backup-nsec-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .backup-nsec-box .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .connect-footer {

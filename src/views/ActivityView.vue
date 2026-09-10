@@ -294,11 +294,15 @@ function navigateToMedia(tags) {
   }
 
   .tabs-bar {
+    display: flex;
     overflow-x: auto;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
     flex-wrap: nowrap;
     margin-bottom: 16px;
     padding-bottom: 4px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .tabs-bar::-webkit-scrollbar {
@@ -309,6 +313,17 @@ function navigateToMedia(tags) {
     flex-shrink: 0;
     padding: 8px 14px;
     font-size: 0.85rem;
+  }
+
+  .timeline-container {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .timeline-item {
+    padding: 16px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .timeline-header {

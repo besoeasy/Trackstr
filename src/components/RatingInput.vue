@@ -177,17 +177,36 @@ function onLeave() {
 
 @media (max-width: 640px) {
   .rating-input-container {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 8px;
+    max-width: 100%;
+    align-items: center;
   }
 
   .stars-row {
-    gap: 1px;
+    gap: 0px;
+    flex-shrink: 0;
   }
 
   .star-btn {
-    font-size: 1.35rem;
+    font-size: 1.25rem;
     padding: 3px 2px;
+  }
+}
+
+@media (max-width: 380px) {
+  .star-btn {
+    font-size: 1.12rem;
+    padding: 2px 1px;
+  }
+
+  .score-badge-wrap {
+    min-width: 44px;
+  }
+
+  .rating-value {
+    font-size: 0.8rem;
+    padding: 2px 4px;
   }
 }
 </style>

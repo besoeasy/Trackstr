@@ -1399,21 +1399,46 @@ function goBack() {
 }
 
 @media (max-width: 640px) {
+  .poster-col {
+    max-width: 180px;
+    margin: 0 auto;
+  }
+
+  .media-title {
+    font-size: 1.75rem;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+
+  .contentid-row {
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+  }
+
+  .contentid-chip {
+    max-width: 100%;
+    font-size: 0.72rem;
+    word-break: break-all;
+  }
+
   .action-panel {
-    padding: 18px;
+    padding: 16px;
   }
 
   .action-row {
     flex-direction: column;
-    gap: 18px;
+    gap: 16px;
   }
 
   .action-item {
     min-width: 100%;
+    width: 100%;
   }
 
-  .media-title {
-    font-size: 2rem;
+  .rating-row {
+    flex-wrap: wrap;
+    gap: 10px;
   }
 }
 

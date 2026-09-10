@@ -162,16 +162,21 @@ function navigateToDetail() {
 
 @media (max-width: 640px) {
   .media-card-body {
-    padding: 10px 12px;
+    padding: 8px 10px 10px;
   }
 
   .media-title {
-    font-size: 0.9rem;
-    line-height: 1.3;
+    font-size: 0.86rem;
+    line-height: 1.25;
+    margin-bottom: 4px;
   }
 
   .media-meta {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
+  }
+
+  .media-artist {
+    max-width: 85px;
   }
 }
 </style>
