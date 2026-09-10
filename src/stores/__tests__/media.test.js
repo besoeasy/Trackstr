@@ -174,14 +174,6 @@ describe('NIP-09 local echo', () => {
 })
 
 describe('inbound NIP-09 deletions', () => {
-  const deletionById = (pubkey, targetId, id = 'del1') => ({
-    id,
-    pubkey,
-    created_at: 3000,
-    kind: 5,
-    tags: [['e', targetId]],
-    content: 'deleted',
-  })
   const deletionByCoord = (pubkey, coordinate, id = 'del1') => ({
     id,
     pubkey,
@@ -191,7 +183,7 @@ describe('inbound NIP-09 deletions', () => {
     content: 'deleted',
   })
 
-  it('removes your review when your own e-deletion arrives', async () => {
+  it('removes your review when your own coordinate deletion arrives', async () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
       { id: 'r1', pubkey: OWN, created_at: 1000, kind: KINDS.RATING, tags: baseTags({ rating: '8' }), content: 'great' },
@@ -199,7 +191,7 @@ describe('inbound NIP-09 deletions', () => {
     await media.syncUserData(OWN)
     expect(media.getReviewsForMedia(CID)).toHaveLength(1)
 
-    stubs.queryEvents.mockResolvedValueOnce([deletionById(OWN, 'r1')])
+    stubs.queryEvents.mockResolvedValueOnce([deletionByCoord(OWN, `35400:${OWN}:${CID}`)])
     await media.syncUserData(OWN)
     expect(media.getReviewsForMedia(CID)).toHaveLength(0)
   })
@@ -213,7 +205,7 @@ describe('inbound NIP-09 deletions', () => {
     await media.syncUserData(OWN)
 
     stubs.queryEvents.mockResolvedValueOnce([
-      deletionById(STRANGER, 'r1', 'del1'),
+      deletionByCoord(STRANGER, `35400:${OWN}:${CID}`, 'del1'),
       deletionByCoord(STRANGER, `35402:${OWN}:${CID}`, 'del2'),
     ])
     await media.syncUserData(OWN)
@@ -236,7 +228,7 @@ describe('inbound NIP-09 deletions', () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
       { id: 'r1', pubkey: OWN, created_at: 1000, kind: KINDS.RATING, tags: baseTags({ rating: '8' }), content: 'great' },
-      deletionById(OWN, 'r9', 'del1'),
+      deletionByCoord(OWN, `35400:${OWN}:${CID}other`, 'del1'),
     ])
     const feed = await media.fetchRecentFeed(10)
     expect(feed.map((e) => e.id).sort()).toEqual(['r1'])
@@ -483,35 +475,6 @@ describe('getDiscoveredEpisodesForMedia()', () => {
       expect(userReview.content).toBe('A classic mind-bender.')
       expect(userReview.rating).toBe(9)
       expect(userReview.spoiler).toBe(true)
-    })
-
-    it('folds legacy Kind 5401 reviews into ratings state', async () => {
-      const { media } = setupStores()
-      stubs.queryEvents.mockResolvedValueOnce([
-        {
-          id: 'legacy-rev-1',
-          pubkey: OWN,
-          created_at: 900,
-          kind: 5401,
-          tags: [
-            ['d', CID],
-            ['contentid', CID],
-            ['trackstr', 'web'],
-            ['type', 'movie'],
-            ['name', 'Fight Club'],
-            ['year', '1999'],
-            ['rating', '8.5'],
-          ],
-          content: 'Legacy review text.',
-        },
-      ])
-      await media.syncUserData(OWN)
-
-      const reviews = media.getReviewsForMedia(CID)
-      expect(reviews).toHaveLength(1)
-      expect(reviews[0].content).toBe('Legacy review text.')
-      expect(reviews[0].rating).toBe(8.5)
-    })
   })
 
   describe('Similar Suggestions (Kind 35401)', () => {

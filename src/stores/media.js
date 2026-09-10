@@ -5,7 +5,6 @@ import {
   KINDS,
   buildRatingEvent,
   buildStatusEvent,
-  buildReviewEvent,
   buildSimilarSuggestionEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
@@ -35,6 +34,7 @@ export const useMediaStore = defineStore('media', () => {
       .map((r) => ({
         id: r.eventId || r.id,
         eventId: r.eventId || r.id,
+        dTag: r.dTag || r.contentId,
         contentId: r.contentId,
         content: r.content,
         rating: r.rating,
@@ -65,48 +65,6 @@ export const useMediaStore = defineStore('media', () => {
         lastSyncedAt.value = data.lastSyncedAt || 0
         nostrContentIds.value = data.nostrContentIds || {}
 
-        // Migrate any legacy separate reviews (kind 5401) from localStorage into ratings
-        if (Array.isArray(data.reviews)) {
-          data.reviews.forEach((r) => {
-            if (r?.contentId && r?.pubkey) {
-              const dTag = r.dTag || r.contentId
-              const authorKey = `${r.pubkey}:${dTag}`
-              if (!ratings.value[authorKey]) {
-                ratings.value[authorKey] = {
-                  dTag,
-                  contentId: r.contentId,
-                  rating: r.rating ?? null,
-                  content: r.content || '',
-                  spoiler: !!r.spoiler,
-                  eventId: r.id || r.eventId,
-                  createdAt: r.createdAt,
-                  pubkey: r.pubkey,
-                  media: r.media,
-                }
-              } else if (!ratings.value[authorKey].content && r.content) {
-                ratings.value[authorKey].content = r.content
-                ratings.value[authorKey].spoiler = !!r.spoiler
-              }
-            }
-          })
-        }
-
-        // Heal provenance for caches written before provenance tracking:
-        // anything referenced by persisted event-derived state is Nostr-sourced.
-        Object.values(statuses.value).forEach((s) => {
-          if (s?.contentId) nostrContentIds.value[s.contentId] = 1
-        })
-        Object.values(ratings.value).forEach((r) => {
-          if (r?.contentId) nostrContentIds.value[r.contentId] = 1
-        })
-        Object.values(suggestions.value).forEach((sg) => {
-          if (sg?.contentId) nostrContentIds.value[sg.contentId] = 1
-          if (Array.isArray(sg?.items)) {
-            sg.items.forEach((it) => {
-              if (it?.contentId) nostrContentIds.value[it.contentId] = 1
-            })
-          }
-        })
         // Heal any episode types in mediaLibrary cache
         Object.keys(mediaLibrary.value).forEach((cid) => {
           const m = mediaLibrary.value[cid]
@@ -260,25 +218,6 @@ export const useMediaStore = defineStore('media', () => {
           media,
         }
       }
-    } else if (evt.kind === 5401) {
-      // Legacy Kind 5401 review support: fold into ratings
-      const ratingTag = evt.tags.find((t) => t[0] === 'rating')?.[1]
-      const spoilerTag = evt.tags.find((t) => t[0] === 'spoiler')?.[1]
-      const current = ratings.value[authorKey]
-      if (!current || evt.created_at > current.createdAt) {
-        ratings.value[authorKey] = {
-          dTag,
-          contentId: media.contentId,
-          rating: ratingTag !== undefined && ratingTag !== null && ratingTag !== '' && Number.isFinite(Number(ratingTag)) ? Number(ratingTag) : (current?.rating ?? null),
-          content: evt.content || '',
-          spoiler: spoilerTag === '1',
-          eventId: evt.id,
-          id: evt.id,
-          createdAt: evt.created_at,
-          pubkey: evt.pubkey,
-          media,
-        }
-      }
     } else if (evt.kind === KINDS.SIMILAR_SUGGESTION) {
       const current = suggestions.value[authorKey]
       const similarItems = []
@@ -351,18 +290,7 @@ export const useMediaStore = defineStore('media', () => {
     if (!deleter) return
     for (const tag of evt.tags) {
       if (!Array.isArray(tag)) continue
-      if (tag[0] === 'e' && typeof tag[1] === 'string') {
-        const targetId = tag[1]
-        // Replaceable events deleted by id (non-standard but tolerated).
-        for (const map of [statuses.value, ratings.value, suggestions.value]) {
-          for (const [key, entry] of Object.entries(map)) {
-            if ((entry?.eventId === targetId || entry?.id === targetId) && String(entry.pubkey || '').toLowerCase() === deleter) {
-              delete map[key]
-              pruneProvenance((entry.contentId || '').split(':')[0])
-            }
-          }
-        }
-      } else if (tag[0] === 'a' && typeof tag[1] === 'string') {
+      if (tag[0] === 'a' && typeof tag[1] === 'string') {
         const parts = tag[1].split(':')
         if (parts.length < 3) continue
         const [kindStr, targetPubkey, ...dParts] = parts
@@ -738,46 +666,34 @@ export const useMediaStore = defineStore('media', () => {
    * kind-aware: NIP-33 identity is (kind, pubkey, d-tag), so a status delete
    * never wipes the rating sharing its d-tag (and vice versa).
    */
-  async function deleteTrackstrEvent({ eventId, coordinate, reason }) {
+  async function deleteTrackstrEvent({ coordinate, reason }) {
     if (!authStore.isAuthenticated) {
       throw new Error('Please connect your Nostr extension.')
     }
-    if ((eventId && coordinate) || (!eventId && !coordinate)) {
-      throw new Error('Deletion requires exactly one of eventId or coordinate.')
+    if (!coordinate) {
+      throw new Error('Deletion coordinate is required.')
     }
 
-    const deleteTemplate = buildDeletionEvent({ eventId, coordinate, reason })
+    const deleteTemplate = buildDeletionEvent({ coordinate, reason })
     const signed = await nostrClient.signEvent(deleteTemplate)
     await publishOrThrow(signed)
 
     // Remove from local state
     const ownPubkey = authStore.pubkey || ''
-    if (coordinate) {
-      // Coordinate shape "<kind>:<pubkey>:<d-tag>"; d-tag may itself
-      // contain colons (episode ":sNeM" suffix), so rejoin the tail.
-      const [kindStr, , ...dParts] = String(coordinate).split(':')
-      const kind = Number(kindStr)
-      const dTag = dParts.join(':')
-      const base = dTag.split(':')[0]
-      if (kind === KINDS.RATING) {
-        delete ratings.value[`${ownPubkey}:${dTag}`]
-      } else if (kind === KINDS.STATUS) {
-        delete statuses.value[`${ownPubkey}:${dTag}`]
-      } else if (kind === KINDS.SIMILAR_SUGGESTION) {
-        delete suggestions.value[`${ownPubkey}:${dTag}`]
-      }
-      pruneProvenance(base)
+    // Coordinate shape "<kind>:<pubkey>:<d-tag>"; d-tag may itself
+    // contain colons (episode ":sNeM" suffix), so rejoin the tail.
+    const [kindStr, , ...dParts] = String(coordinate).split(':')
+    const kind = Number(kindStr)
+    const dTag = dParts.join(':')
+    const base = dTag.split(':')[0]
+    if (kind === KINDS.RATING) {
+      delete ratings.value[`${ownPubkey}:${dTag}`]
+    } else if (kind === KINDS.STATUS) {
+      delete statuses.value[`${ownPubkey}:${dTag}`]
+    } else if (kind === KINDS.SIMILAR_SUGGESTION) {
+      delete suggestions.value[`${ownPubkey}:${dTag}`]
     }
-    if (eventId) {
-      for (const map of [statuses.value, ratings.value, suggestions.value]) {
-        for (const [key, entry] of Object.entries(map)) {
-          if (entry?.eventId === eventId || entry?.id === eventId) {
-            delete map[key]
-            pruneProvenance((entry.contentId || '').split(':')[0])
-          }
-        }
-      }
-    }
+    pruneProvenance(base)
 
     saveToLocalStorage()
     return signed

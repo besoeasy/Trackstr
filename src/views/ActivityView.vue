@@ -14,7 +14,7 @@ const filterType = ref('all') // 'all' | 'reviews' | 'suggestions'
 
 const filteredFeed = computed(() => {
   if (filterType.value === 'reviews') {
-    return feed.value.filter((e) => (e?.kind === 35400 && e?.content) || e?.kind === 5401)
+    return feed.value.filter((e) => e?.kind === 35400 && e?.content)
   }
   if (filterType.value === 'suggestions') return feed.value.filter((e) => e?.kind === 35401)
   return feed.value
@@ -86,7 +86,7 @@ function navigateToMedia(tags) {
   if (contentId) {
     const rawType = getMediaType(tags)
     const rawTitle = getMediaTitle(tags)
-    const isEpisode = rawType === 'episode' || /S\d+E\d+/i.test(rawTitle) || !!getTagValue(tags, 'season')
+    const isEpisode = rawType === 'episode' || !!getTagValue(tags, 'season')
     const type = isEpisode ? 'show' : rawType
     const title = isEpisode ? cleanShowTitle(rawTitle) : rawTitle
     const season = getTagValue(tags, 'season')
@@ -171,7 +171,7 @@ function navigateToMedia(tags) {
         <div class="timeline-header">
           <div class="timeline-user">
             <span class="contentid-chip">{{ (evt.pubkey || '').slice(0, 8) }}...{{ (evt.pubkey || '').slice(-4) }}</span>
-            <span v-if="(evt.kind === 35400 && evt.content) || evt.kind === 5401" class="badge badge-info">Review</span>
+            <span v-if="evt.kind === 35400 && evt.content" class="badge badge-info">Review</span>
             <span v-else-if="evt.kind === 35400" class="badge badge-warning">Rating</span>
             <span v-else-if="evt.kind === 35401" class="badge badge-accent">Suggestion</span>
           </div>

@@ -5,7 +5,6 @@ import {
   buildBaseMediaTags,
   buildRatingEvent,
   buildStatusEvent,
-  buildReviewEvent,
   buildSimilarSuggestionEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
@@ -126,9 +125,9 @@ describe('music + qualifier tags', () => {
   })
 })
 
-describe('buildReviewEvent()', () => {
+describe('buildRatingEvent() with written review commentary', () => {
   it('unifies review into Kind 35400 and validates rating / spoiler', () => {
-    const evt = buildReviewEvent(MOVIE, 'Still holds up.', { rating: 9, spoiler: true })
+    const evt = buildRatingEvent(MOVIE, 9, 'Still holds up.', { spoiler: true })
     expect(evt.kind).toBe(KINDS.RATING)
     expect(evt.content).toBe('Still holds up.')
     expect(evt.tags).toContainEqual(['rating', '9'])
@@ -142,24 +141,21 @@ describe('buildReviewEvent()', () => {
     expect(ratingOnlyEvt.tags).toContainEqual(['rating', '8'])
 
     // Review text without rating
-    const textOnlyEvt = buildReviewEvent(MOVIE, 'Great commentary.')
+    const textOnlyEvt = buildRatingEvent(MOVIE, null, 'Great commentary.')
     expect(textOnlyEvt.kind).toBe(KINDS.RATING)
     expect(textOnlyEvt.content).toBe('Great commentary.')
 
     // Empty review / rating is allowed
-    const emptyEvt = buildReviewEvent(MOVIE, '')
+    const emptyEvt = buildRatingEvent(MOVIE, null, '')
     expect(emptyEvt.kind).toBe(KINDS.RATING)
     expect(emptyEvt.content).toBe('')
 
-    expect(() => buildReviewEvent(MOVIE, 'ok', { rating: 42 })).toThrow()
+    expect(() => buildRatingEvent(MOVIE, 42, 'ok')).toThrow()
   })
 })
 
 describe('buildDeletionEvent()', () => {
-  const eid = 'ef'.repeat(32)
-
-  it('builds e-refs and a-refs (a-refs carry the NIP-09 k tag)', () => {
-    expect(buildDeletionEvent({ eventId: eid }).tags).toEqual([['e', eid]])
+  it('builds coordinate a-refs carrying the NIP-09 k tag', () => {
     const coord = `35402:${'ab'.repeat(32)}:${CID}:s1e3`
     expect(buildDeletionEvent({ coordinate: coord }).tags).toEqual([
       ['a', coord],
@@ -167,10 +163,9 @@ describe('buildDeletionEvent()', () => {
     ])
   })
 
-  it('rejects ambiguous or malformed targets', () => {
-    expect(() => buildDeletionEvent({ eventId: eid, coordinate: '35402:a:b' })).toThrow()
+  it('rejects malformed or missing coordinate targets', () => {
     expect(() => buildDeletionEvent({})).toThrow()
-    expect(() => buildDeletionEvent({ eventId: 'nope' })).toThrow()
+    expect(() => buildDeletionEvent({ coordinate: '35402:a:b' })).toThrow()
     expect(() => buildDeletionEvent({ coordinate: '35402:nothex:d' })).toThrow()
   })
 })

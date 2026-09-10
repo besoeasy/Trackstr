@@ -49,19 +49,6 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* Compatibility aliases for legacy view variables */
-  --color-bg-alt: var(--bg-card-hover);
-  --color-bg-card: var(--bg-card);
-  --color-border: var(--border-subtle);
-  --color-text: var(--text-main);
-  --color-text-muted: var(--text-muted);
-  --color-primary: var(--primary);
-  --spacing-xs: 8px;
-  --spacing-sm: 12px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-
   /* Subtle, Sharp Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.75);

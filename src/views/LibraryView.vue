@@ -101,14 +101,18 @@ async function handleDeleteReview(review) {
 
   actionError.value = ''
   try {
-    await mediaStore.deleteTrackstrEvent({ eventId: review.id, reason: 'Review deleted by author' })
+    const dTag = review.dTag || review.contentId
+    await mediaStore.deleteTrackstrEvent({
+      coordinate: `35400:${authStore.pubkey}:${dTag}`,
+      reason: 'Review deleted by author',
+    })
   } catch (err) {
     actionError.value = err.message || 'Failed to delete review.'
   }
 }
 
 function navigateToItem(contentId, media) {
-  const isEpisode = media?.type === 'episode' || !!media?.season || /S\d+E\d+/i.test(media?.name || media?.title || '')
+  const isEpisode = media?.type === 'episode' || !!media?.season
   const rawTitle = media?.name || media?.title || ''
   const title = isEpisode ? cleanShowTitle(rawTitle) : rawTitle
   const type = isEpisode ? 'show' : (media?.type || 'movie')

@@ -17,7 +17,6 @@ import {
 import {
   buildStatusEvent,
   buildRatingEvent,
-  buildReviewEvent,
 } from '@/services/nostr/events.js'
 import { nostrClient } from '@/services/nostr/client.js'
 import { logger } from '@/utils/logger.js'
@@ -290,11 +289,6 @@ class TrickleQueue {
           entry.payload.review || '',
           { spoiler: entry.payload.spoiler }
         )
-      } else if (entry.actionType === 'review') {
-        eventTemplate = buildReviewEvent(entry.media, entry.payload.review, {
-          rating: entry.payload.rating,
-          spoiler: entry.payload.spoiler,
-        })
       }
 
       if (!eventTemplate) {

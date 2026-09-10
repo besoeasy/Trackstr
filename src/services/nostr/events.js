@@ -128,18 +128,6 @@ export function buildRatingEvent(media, rating = null, content = '', options = {
   }
 }
 
-/**
- * Builds a Written Review Event (unified into Kind 35400)
- * @param {Object} media
- * @param {string} [body] Review text
- * @param {Object} [options]
- * @param {number|string} [options.rating] Optional rating
- * @param {boolean} [options.spoiler] Whether contains spoilers
- * @returns {Object} Unsigned event template
- */
-export function buildReviewEvent(media, body = '', options = {}) {
-  return buildRatingEvent(media, options.rating ?? null, body, options)
-}
 
 /**
  * Builds a Mutable Status Event (kind: 35402)
@@ -225,34 +213,25 @@ export function buildSimilarSuggestionEvent(sourceMedia, similarItems, options =
 /**
  * Builds a standard NIP-09 Deletion Event (kind: 5)
  * @param {Object} target
- * @param {string} [target.eventId] For events deleted by id
- * @param {string} [target.coordinate] For parameterized replaceable events: "<kind>:<pubkey>:<d-tag>"
+ * @param {string} target.coordinate For parameterized replaceable events: "<kind>:<pubkey>:<d-tag>"
  * @param {string} [target.reason]
  * @returns {Object} Unsigned event template
  */
-export function buildDeletionEvent({ eventId, coordinate, reason = 'Deleted by user' }) {
-  if ((eventId && coordinate) || (!eventId && !coordinate)) {
-    throw new Error('Deletion requires exactly one of eventId (regular kinds) or coordinate (NIP-33 kinds).')
+export function buildDeletionEvent({ coordinate, reason = 'Deleted by user' }) {
+  if (!coordinate) {
+    throw new Error('Deletion coordinate is required.')
   }
-  const tags = []
-  if (eventId) {
-    if (!/^[0-9a-f]{64}$/i.test(eventId)) {
-      throw new Error('Deletion eventId must be a 64-hex event ID.')
-    }
-    tags.push(['e', eventId])
+  // "<kind>:<pubkey>:<d-tag>" — d-tag itself may contain colons (episode suffix).
+  const parts = String(coordinate).split(':')
+  const [kind, pubkey, ...dParts] = parts
+  const dTag = dParts.join(':')
+  if (!/^\d+$/.test(kind || '') || !/^[0-9a-f]{64}$/i.test(pubkey || '') || !dTag) {
+    throw new Error('Deletion coordinate must look like "<kind>:<64-hex pubkey>:<d-tag>".')
   }
-  if (coordinate) {
-    // "<kind>:<pubkey>:<d-tag>" — d-tag itself may contain colons (episode suffix).
-    const parts = String(coordinate).split(':')
-    const [kind, pubkey, ...dParts] = parts
-    const dTag = dParts.join(':')
-    if (!/^\d+$/.test(kind || '') || !/^[0-9a-f]{64}$/i.test(pubkey || '') || !dTag) {
-      throw new Error('Deletion coordinate must look like "<kind>:<64-hex pubkey>:<d-tag>".')
-    }
-    tags.push(['a', coordinate])
-    // NIP-09 k tag: advertises the target kind so relays can match cheaply.
-    tags.push(['k', kind])
-  }
+  const tags = [
+    ['a', coordinate],
+    ['k', kind],
+  ]
 
   return {
     kind: KINDS.DELETION,

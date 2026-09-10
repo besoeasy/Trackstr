@@ -222,7 +222,7 @@ async function handleSave() {
 
     mediaStore.cacheMediaItem(mediaObj)
 
-    // 1. Publish Status (Kind 35402) & Activity check-in (Kind 5402)
+    // 1. Publish Status (Kind 35402)
     const progressStr = season.value && episode.value ? `s${season.value}e${episode.value}` : ''
     await mediaStore.setStatus(mediaObj, status.value, progressStr, note.value)
 

@@ -177,16 +177,6 @@ class NostrClient {
       throw new Error(errMessage)
     }
 
-    // Some extensions support or require enable()
-    if (typeof window.nostr.enable === 'function') {
-      try {
-        logger.debug('NostrClient', 'Calling window.nostr.enable()...')
-        await window.nostr.enable()
-      } catch (enableErr) {
-        logger.warn('NostrClient', 'window.nostr.enable() threw an error or was declined:', enableErr)
-      }
-    }
-
     try {
       logger.info('NostrClient', 'Calling window.nostr.getPublicKey()... (check for extension approval prompt)')
       if (typeof window !== 'undefined') {
@@ -312,7 +302,6 @@ class NostrClient {
             },
           })
         )
-        window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: true, kind: fullTemplate.kind } }))
       }
       const signed = await Promise.race([signPromise, timeoutPromise])
       logger.info('NostrClient', `✓ Event successfully signed! ID: ${signed.id}`, signed)
@@ -330,7 +319,6 @@ class NostrClient {
             detail: { active: false },
           })
         )
-        window.dispatchEvent(new CustomEvent('trackstr:signing', { detail: { active: false } }))
       }
     }
   }

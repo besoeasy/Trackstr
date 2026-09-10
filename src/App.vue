@@ -31,30 +31,13 @@ function onExtensionAction(e) {
   }
 }
 
-function onSigningLegacy(e) {
-  if (!e.detail) return
-  if (!isActionActive.value && e.detail.active) {
-    isActionActive.value = true
-    actionInfo.value = {
-      type: 'sign',
-      title: 'Approve Event Signature',
-      message: 'Please check your browser extension (e.g. Alby, nos2x icon in your toolbar) to approve signing.',
-      kind: e.detail.kind || null,
-    }
-  } else if (!e.detail.active) {
-    isActionActive.value = false
-  }
-}
-
 onMounted(() => {
   document.documentElement.setAttribute('data-theme', settingsStore.theme)
   window.addEventListener('trackstr:extension-action', onExtensionAction)
-  window.addEventListener('trackstr:signing', onSigningLegacy)
 })
 
 onUnmounted(() => {
   window.removeEventListener('trackstr:extension-action', onExtensionAction)
-  window.removeEventListener('trackstr:signing', onSigningLegacy)
 })
 </script>
 
