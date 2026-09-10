@@ -261,4 +261,65 @@ describe('TvEpisodeTracker.vue', () => {
     expect(targetCard.exists()).toBe(true)
     expect(targetCard.text()).toContain('1. S2 Premiere')
   })
+
+  it('displays Up Next banner and allows one-click completion', async () => {
+    const setStatusSpy = vi.spyOn(mediaStore, 'setStatus').mockResolvedValue({})
+
+    const wrapper = mount(TvEpisodeTracker, {
+      props: {
+        media: mockMedia,
+        contentId: CID,
+      },
+    })
+
+    await flushPromises()
+
+    const upNextCard = wrapper.find('.up-next-card')
+    expect(upNextCard.exists()).toBe(true)
+    expect(upNextCard.text()).toContain('S01E01')
+    expect(upNextCard.text()).toContain('Pilot')
+
+    // Click "✓ Watched" on the Up Next card
+    const upNextBtn = wrapper.find('.up-next-action-btn')
+    await upNextBtn.trigger('click')
+    await flushPromises()
+
+    expect(setStatusSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentId: CID,
+        type: 'episode',
+        season: 1,
+        episode: 1,
+      }),
+      'completed',
+      's1e1'
+    )
+  })
+
+  it('supports Specials (Season 0) and adding custom specials', async () => {
+    const wrapper = mount(TvEpisodeTracker, {
+      props: {
+        media: mockMedia,
+        contentId: CID,
+      },
+    })
+
+    await flushPromises()
+
+    // Click "+ Specials" to add Season 0
+    const specialsBtn = wrapper.findAll('.season-action-btn').find((btn) => btn.text().includes('+ Specials'))
+    expect(specialsBtn).toBeDefined()
+    await specialsBtn.trigger('click')
+    await flushPromises()
+
+    // Active season should now be Specials
+    const activePill = wrapper.find('.season-pill-btn.active')
+    expect(activePill.text()).toContain('Specials')
+
+    // An episode card for Special 1 should exist
+    const epCards = wrapper.findAll('.episode-card')
+    expect(epCards.length).toBe(1)
+    expect(epCards[0].text()).toContain('Special 1')
+    expect(epCards[0].text()).toContain('S00E01')
+  })
 })

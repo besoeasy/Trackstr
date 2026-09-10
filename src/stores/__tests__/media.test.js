@@ -444,3 +444,59 @@ describe('trackedItemsList episode folding', () => {
     expect(tracked[0].progress).toBe('1 ep watched')
   })
 })
+
+describe('getDiscoveredEpisodesForMedia()', () => {
+  it('discovers episodes and specials from ingested Nostr events', async () => {
+    const { media } = setupStores()
+
+    const ep1 = {
+      id: 'ep1',
+      pubkey: OWN,
+      created_at: 1000,
+      kind: KINDS.STATUS,
+      tags: [
+        ['d', `${CID}:s1e1`],
+        ['contentid', CID],
+        ['season', '1'],
+        ['episode', '1'],
+        ['name', 'Stranger Things - S01E01: Pilot'],
+        ['type', 'episode'],
+        ['status', 'completed'],
+      ],
+      content: '',
+    }
+
+    const special1 = {
+      id: 'sp1',
+      pubkey: OWN,
+      created_at: 1100,
+      kind: KINDS.STATUS,
+      tags: [
+        ['d', `${CID}:s0e1`],
+        ['contentid', CID],
+        ['season', '0'],
+        ['episode', '1'],
+        ['name', 'Stranger Things - S00E01: Beyond Stranger Things'],
+        ['type', 'episode'],
+        ['status', 'completed'],
+      ],
+      content: '',
+    }
+
+    stubs.queryEvents.mockResolvedValueOnce([ep1, special1])
+    await media.syncUserData(OWN)
+
+    const discovered = media.getDiscoveredEpisodesForMedia(CID)
+    expect(discovered).toHaveLength(2)
+
+    // Season 0 (Special)
+    expect(discovered[0].season).toBe(0)
+    expect(discovered[0].episode).toBe(1)
+    expect(discovered[0].name).toBe('Beyond Stranger Things')
+
+    // Season 1 (Episode 1)
+    expect(discovered[1].season).toBe(1)
+    expect(discovered[1].episode).toBe(1)
+    expect(discovered[1].name).toBe('Pilot')
+  })
+})

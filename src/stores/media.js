@@ -781,6 +781,109 @@ export const useMediaStore = defineStore('media', () => {
     return activityLogs.value.filter((a) => a.contentId === contentId)
   }
 
+  /**
+   * Discovers all known seasons & episodes for a media item from local state & Nostr events.
+   * Includes Season 0 (Specials) and user-added episodes.
+   * Enables decentralized crowd-sourced episode map without needing external catalog APIs.
+   * @param {string} contentId
+   * @returns {Array<{ season: number, episode: number, name: string, source: string }>}
+   */
+  function getDiscoveredEpisodesForMedia(contentId) {
+    if (!contentId) return []
+    const episodesMap = new Map() // key: `s${season}e${episode}` -> { season, episode, name }
+
+    function addEp(seasonVal, epVal, nameVal, src = 'nostr') {
+      if (seasonVal === undefined || seasonVal === null || epVal === undefined || epVal === null) return
+      const s = Number(seasonVal)
+      const e = Number(epVal)
+      if (!Number.isFinite(s) || !Number.isFinite(e) || s < 0 || e < 1) return
+
+      const key = `s${s}e${e}`
+      const existing = episodesMap.get(key)
+      const rawName = nameVal ? String(nameVal).trim() : ''
+
+      let cleanEpTitle = rawName
+      const epTitleMatch = rawName.match(/S\d+E\d+:\s*(.*)$/i)
+      if (epTitleMatch && epTitleMatch[1]) {
+        cleanEpTitle = epTitleMatch[1].trim()
+      } else if (rawName.includes(' - ')) {
+        const parts = rawName.split(' - ')
+        cleanEpTitle = parts[parts.length - 1].trim()
+      }
+
+      const defaultName = s === 0 ? `Special ${e}` : `Episode ${e}`
+
+      if (!existing) {
+        episodesMap.set(key, {
+          season: s,
+          episode: e,
+          name: cleanEpTitle || defaultName,
+          source: src,
+        })
+      } else if (cleanEpTitle && (existing.name.startsWith('Episode ') || existing.name.startsWith('Special '))) {
+        existing.name = cleanEpTitle
+      }
+    }
+
+    function checkItem(item) {
+      if (!item) return
+      const baseId = (item.contentId || item.dTag?.split(':')[0] || '').toLowerCase()
+      if (baseId !== contentId.toLowerCase()) return
+
+      // 1. From media object
+      if (item.media?.season !== undefined && item.media?.episode !== undefined) {
+        addEp(item.media.season, item.media.episode, item.media.name || item.media.title)
+      }
+
+      // 2. From dTag `:s(\d+)e(\d+)`
+      if (item.dTag) {
+        const match = item.dTag.match(/:s(\d+)e(\d+)/i)
+        if (match) {
+          addEp(match[1], match[2], item.media?.name || item.media?.title)
+        }
+      }
+
+      // 3. From progress `s(\d+)e(\d+)`
+      if (item.progress) {
+        const match = item.progress.match(/s(\d+)e(\d+)/i)
+        if (match) {
+          addEp(match[1], match[2], item.media?.name || item.media?.title)
+        }
+      }
+
+      // 4. From tags if event object
+      if (Array.isArray(item.tags)) {
+        const sTag = item.tags.find((t) => t[0] === 'season')?.[1]
+        const eTag = item.tags.find((t) => t[0] === 'episode')?.[1]
+        const nTag = item.tags.find((t) => t[0] === 'name')?.[1]
+        if (sTag !== undefined && eTag !== undefined) {
+          addEp(sTag, eTag, nTag)
+        }
+      }
+    }
+
+    Object.values(statuses.value).forEach(checkItem)
+    Object.values(ratings.value).forEach(checkItem)
+    reviews.value.forEach(checkItem)
+    activityLogs.value.forEach(checkItem)
+
+    // Also check localStorage for any user-added custom episodes for this show
+    try {
+      const storedCustom = localStorage.getItem(`trackstr_custom_episodes_${contentId}`)
+      if (storedCustom) {
+        const customList = JSON.parse(storedCustom)
+        if (Array.isArray(customList)) {
+          customList.forEach((c) => addEp(c.season, c.episode, c.name, 'user'))
+        }
+      }
+    } catch {}
+
+    return Array.from(episodesMap.values()).sort((a, b) => {
+      if (a.season !== b.season) return a.season - b.season
+      return a.episode - b.episode
+    })
+  }
+
   function cacheMediaItem(item) {
     if (item && item.contentId) {
       // Never let empty provider fields clobber previously cached values.
@@ -1092,6 +1195,7 @@ export const useMediaStore = defineStore('media', () => {
     getMediaMetadata,
     getReviewsForMedia,
     getActivityForMedia,
+    getDiscoveredEpisodesForMedia,
     cacheMediaItem,
     getKnownMediaFromEvents,
     searchEventAutocomplete,

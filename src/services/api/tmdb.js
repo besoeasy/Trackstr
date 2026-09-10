@@ -115,11 +115,63 @@ async function searchWikipediaMovies(query) {
 }
 
 /**
- * Searches TMDB (if key available) or fallback to Free Open Providers (TVMaze + Wikipedia)
- * @param {string} query
- * @param {'all'|'movies'|'shows'} [filter='all']
- * @returns {Promise<Array<Object>>}
+ * Open TV series search via Wikipedia REST API (100% free, no key needed)
  */
+async function searchWikipediaShows(query) {
+  try {
+    const searchUrl = `https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(query + ' TV series')}&limit=6`
+    const res = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'Trackstr/1.0 (https://github.com/besoeasy/Trackstr)' },
+    })
+    if (!res.ok) return []
+
+    const data = await res.json()
+    const pages = data.pages || []
+    const results = []
+
+    for (const p of pages.slice(0, 6)) {
+      const desc = p.description || ''
+      const title = p.title || ''
+      const isLikelyShow =
+        /series|television|sitcom|anime|drama|broadcast|program|show/i.test(desc) ||
+        /series|television|sitcom|anime|drama|show/i.test(title)
+      if (!isLikelyShow && p.thumbnail == null) continue
+
+      try {
+        const sumRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(p.key)}`, {
+          headers: { 'User-Agent': 'Trackstr/1.0' },
+        })
+        if (sumRes.ok) {
+          const sum = await sumRes.json()
+          const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/)
+          const cleanTitle = sum.title
+            .replace(/\s*\([^)]*(series|television|show|anime)[^)]*\)/i, '')
+            .trim()
+
+          const poster = sum.originalimage?.source || sum.thumbnail?.source || ''
+
+          results.push({
+            type: 'show',
+            id: `wiki-${p.id}`,
+            title: cleanTitle,
+            year: yearMatch ? yearMatch[1] : '',
+            overview: sum.extract || '',
+            poster,
+            banner: sum.originalimage?.source || '',
+            genres: ['TV Series'],
+            sources: ['Wikipedia'],
+          })
+        }
+      } catch {}
+    }
+
+    return results
+  } catch (err) {
+    console.warn('Wikipedia TV series search failed:', err)
+    return []
+  }
+}
+
 /**
  * Searches across Multiple Sources (TMDB + TVMaze + Wikipedia) concurrently and merges results
  * @param {string} query
@@ -205,11 +257,25 @@ export async function searchTmdb(query, filter = 'all') {
     promises.push(Promise.resolve([]))
   }
 
+  // Source 4: Wikipedia (TV Series)
+  if (filter === 'all' || filter === 'shows') {
+    promises.push(
+      searchWikipediaShows(q).then((results) =>
+        results.map((r) => ({ ...r, sources: ['Wikipedia'], wikiId: r.id }))
+      )
+    )
+  } else {
+    promises.push(Promise.resolve([]))
+  }
+
   // Await all sources concurrently
-  const [tmdbRes, tvmazeRes, wikiRes] = await Promise.allSettled(promises)
+  const [tmdbRes, tvmazeRes, wikiMoviesRes, wikiShowsRes] = await Promise.allSettled(promises)
   const tmdbItems = tmdbRes.status === 'fulfilled' ? tmdbRes.value : []
   const tvmazeItems = tvmazeRes.status === 'fulfilled' ? tvmazeRes.value : []
-  const wikiItems = wikiRes.status === 'fulfilled' ? wikiRes.value : []
+  const wikiItems = [
+    ...(wikiMoviesRes.status === 'fulfilled' ? wikiMoviesRes.value : []),
+    ...(wikiShowsRes.status === 'fulfilled' ? wikiShowsRes.value : []),
+  ]
 
   // 2. Intelligent Multi-Source Merge by normalized title & type
   const mergedMap = new Map()
@@ -389,6 +455,50 @@ export async function getTmdbDetails(type, id, title = '', year = '') {
       }
     } catch (tvErr) {
       console.warn('TVMaze enrichment failed:', tvErr)
+    }
+  }
+
+  // 3. Fallback to Wikipedia for TV series if poster or overview is still missing
+  if (type === 'show' && (!result || !result.poster || !result.overview) && (title || result?.title)) {
+    try {
+      const showTitle = cleanShowTitle(title || result?.title)
+      const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(showTitle + ' (TV series)')}`, {
+        headers: { 'User-Agent': 'Trackstr/1.0' },
+      })
+      let sum = wikiRes.ok ? await wikiRes.json() : null
+      if (!sum || sum.type === 'disambiguation') {
+        const altRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(showTitle)}`, {
+          headers: { 'User-Agent': 'Trackstr/1.0' },
+        })
+        if (altRes.ok) {
+          const altSum = await altRes.json()
+          if (altSum.type !== 'disambiguation') sum = altSum
+        }
+      }
+      if (sum) {
+        const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/)
+        const poster = sum.originalimage?.source || sum.thumbnail?.source || ''
+        if (!result) {
+          result = {
+            type: 'show',
+            title: showTitle,
+            name: showTitle,
+            year: yearMatch ? yearMatch[1] : year,
+            overview: sum.extract || '',
+            poster,
+            banner: sum.originalimage?.source || '',
+            genres: ['TV Series'],
+            sources: ['Wikipedia'],
+          }
+        } else {
+          if (!result.overview) result.overview = sum.extract || ''
+          if (!result.poster) result.poster = poster
+          if (!result.banner) result.banner = sum.originalimage?.source || ''
+          if (!result.sources.includes('Wikipedia')) result.sources.push('Wikipedia')
+        }
+      }
+    } catch (wikiErr) {
+      console.warn('Wikipedia TV enrichment failed:', wikiErr)
     }
   }
 
