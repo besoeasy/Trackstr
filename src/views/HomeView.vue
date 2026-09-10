@@ -31,6 +31,7 @@ const popularItems = ref([])
 const isLoadingPopular = ref(false)
 
 // Personalized Recommendation state (weighted 3-row engine)
+const MAX_RECOMMENDATIONS_PER_CATEGORY = 5
 const recommendations = ref({ movies: [], series: [], music: [] })
 const isLoadingRecommendations = ref(false)
 
@@ -312,7 +313,7 @@ async function buildCategoryRecommendations(type) {
   return deduped
     .map((c) => ({ ...c, score: scoreCandidate(c) }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
+    .slice(0, MAX_RECOMMENDATIONS_PER_CATEGORY)
 }
 
 // Builds all three recommendation rows (movies, series, music) in parallel.
@@ -327,10 +328,18 @@ async function loadRecommendations() {
       buildMissedEpisodeCandidates(),
     ])
 
-    const seriesRow = [...missedEpisodes, ...series]
+    const seenSeries = new Set()
+    const dedupedSeries = [...missedEpisodes, ...series].filter((c) => {
+      const key = c?.contentId ? `${c.contentId}:s${c.season || 0}e${c.episode || 0}` : null
+      if (!key || seenSeries.has(key)) return false
+      seenSeries.add(key)
+      return true
+    })
+
+    const seriesRow = dedupedSeries
       .map((c) => ({ ...c, score: scoreCandidate(c) }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
+      .slice(0, MAX_RECOMMENDATIONS_PER_CATEGORY)
 
     recommendations.value = { movies, series: seriesRow, music }
   } catch (err) {
@@ -594,7 +603,7 @@ watch(
             <h3 class="recommendation-row-title">🎬 Movies</h3>
             <div class="recommendation-scroll">
               <RecommendationCard
-                v-for="item in recommendations.movies"
+                v-for="item in recommendations.movies.slice(0, 5)"
                 :key="item.contentId"
                 :item="item"
               />
@@ -605,7 +614,7 @@ watch(
             <h3 class="recommendation-row-title">📺 Series</h3>
             <div class="recommendation-scroll">
               <RecommendationCard
-                v-for="item in recommendations.series"
+                v-for="item in recommendations.series.slice(0, 5)"
                 :key="`${item.contentId}:s${item.season || 0}e${item.episode || 0}`"
                 :item="item"
               />
@@ -616,7 +625,7 @@ watch(
             <h3 class="recommendation-row-title">🎵 Music</h3>
             <div class="recommendation-scroll">
               <RecommendationCard
-                v-for="item in recommendations.music"
+                v-for="item in recommendations.music.slice(0, 5)"
                 :key="item.contentId"
                 :item="item"
               />
