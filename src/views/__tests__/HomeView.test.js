@@ -6,13 +6,17 @@ import HomeView from '@/views/HomeView.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 
-vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  RouterLink: {
-    template: '<a><slot /></a>',
-  },
-}))
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    useRoute: () => ({ query: {} }),
+    useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+    RouterLink: {
+      template: '<a><slot /></a>',
+    },
+  }
+})
 
 vi.mock('@/services/api/tmdb.js', () => ({
   searchTmdb: vi.fn().mockResolvedValue([]),

@@ -5,6 +5,7 @@ import { localSigner } from '@/services/nostr/localSigner.js'
 import { logger } from '@/utils/logger.js'
 import { isValidPubkey } from '@/utils/urls.js'
 import { nip19 } from 'nostr-tools'
+import router from '@/router/index.js'
 
 function loadStoredIdentity() {
   try {
@@ -63,11 +64,10 @@ export const useAuthStore = defineStore('auth', () => {
     return diagnostics.value
   }
 
-  async function openLoginModal(returnTo) {
+  function openLoginModal(returnTo) {
     showLoginModal.value = true
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && router) {
       try {
-        const { default: router } = await import('@/router/index.js')
         const query = returnTo ? { returnTo } : {}
         router.push({ path: '/connect', query }).catch(() => {})
       } catch {

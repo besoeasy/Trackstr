@@ -1,61 +1,53 @@
 import { createRouter, createWebHistory, createMemoryHistory } from 'vue-router'
-import HomeView from '@/views/HomeView.vue'
-import MediaDetailView from '@/views/MediaDetailView.vue'
-import LibraryView from '@/views/LibraryView.vue'
-import ActivityView from '@/views/ActivityView.vue'
-import ConnectView from '@/views/ConnectView.vue'
-import SettingsView from '@/views/SettingsView.vue'
-import TrackMediaView from '@/views/TrackMediaView.vue'
-import ImportView from '@/views/ImportView.vue'
 
 const routes = [
   {
     path: '/',
     name: 'home',
-    component: HomeView,
+    component: () => import('@/views/HomeView.vue'),
   },
   {
     path: '/search',
     name: 'search',
-    component: HomeView,
+    component: () => import('@/views/HomeView.vue'),
   },
   {
     path: '/connect',
     name: 'connect',
     alias: '/login',
-    component: ConnectView,
+    component: () => import('@/views/ConnectView.vue'),
   },
   {
     path: '/settings',
     name: 'settings',
-    component: SettingsView,
+    component: () => import('@/views/SettingsView.vue'),
   },
   {
     path: '/import',
     name: 'import',
     alias: '/sync/import',
-    component: ImportView,
+    component: () => import('@/views/ImportView.vue'),
   },
   {
     path: '/track',
     name: 'track',
     alias: '/add',
-    component: TrackMediaView,
+    component: () => import('@/views/TrackMediaView.vue'),
   },
   {
     path: '/media/:contentId',
     name: 'media-detail',
-    component: MediaDetailView,
+    component: () => import('@/views/MediaDetailView.vue'),
   },
   {
     path: '/library',
     name: 'library',
-    component: LibraryView,
+    component: () => import('@/views/LibraryView.vue'),
   },
   {
     path: '/activity',
     name: 'activity',
-    component: ActivityView,
+    component: () => import('@/views/ActivityView.vue'),
   },
   // Unknown paths land home instead of rendering a bare navbar.
   {
