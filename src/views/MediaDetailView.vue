@@ -617,7 +617,7 @@ function goBack() {
     <p>This link doesn't point to a valid Trackstr media record.</p>
     <router-link to="/" class="btn btn-primary btn-sm">Back to Explore</router-link>
   </div>
-  <div v-else class="media-detail-view">
+  <div v-else class="media-detail-view" :class="{ 'has-banner': !!effectiveBanner, 'no-banner': !effectiveBanner }">
     <!-- Floating Native Back Button -->
     <button
       class="back-nav-btn"
@@ -629,10 +629,11 @@ function goBack() {
       <span class="back-text">Back</span>
     </button>
 
-    <!-- Banner Backdrop -->
+    <!-- Banner Backdrop (rendered only when banner image is present) -->
     <div
+      v-if="effectiveBanner"
       class="backdrop-banner"
-      :style="effectiveBanner ? { backgroundImage: effectiveBanner } : {}"
+      :style="{ backgroundImage: effectiveBanner }"
     >
       <div class="backdrop-gradient"></div>
     </div>
@@ -1032,7 +1033,15 @@ function goBack() {
 <style scoped>
 .media-detail-view {
   position: relative;
+}
+
+.media-detail-view.has-banner {
   margin-top: -40px;
+}
+
+.media-detail-view.no-banner {
+  margin-top: 0;
+  padding-top: 48px;
 }
 
 /* Cinematic Minimal Backdrop */
@@ -1059,10 +1068,17 @@ function goBack() {
 
 .detail-container {
   max-width: 1240px;
-  margin: -140px auto 0;
   padding: 0 24px;
   position: relative;
   z-index: 10;
+}
+
+.has-banner .detail-container {
+  margin: -140px auto 0;
+}
+
+.no-banner .detail-container {
+  margin: 0 auto;
 }
 
 .detail-grid {
@@ -1072,12 +1088,21 @@ function goBack() {
 }
 
 @media (max-width: 880px) {
+  .media-detail-view.no-banner {
+    padding-top: 40px;
+  }
+
   .backdrop-banner {
     height: 240px;
   }
 
-  .detail-container {
+  .has-banner .detail-container {
     margin: -90px auto 0;
+    padding: 0 16px;
+  }
+
+  .no-banner .detail-container {
+    margin: 0 auto;
     padding: 0 16px;
   }
 
