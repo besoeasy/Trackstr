@@ -423,10 +423,6 @@ async function submitReview() {
   }
 
   const body = reviewBody.value.trim()
-  if (!body) {
-    reviewError.value = 'Please enter your review text.'
-    return
-  }
 
   isSubmittingReview.value = true
   reviewError.value = ''
@@ -885,7 +881,7 @@ function goBack() {
                   v-model="reviewBody"
                   class="input review-modal-textarea"
                   rows="5"
-                  placeholder="What did you think? Share your commentary, analysis, or thoughts..."
+                  placeholder="What did you think? Share your commentary, analysis, or thoughts (optional)..."
                 ></textarea>
 
                 <label class="spoiler-toggle">
@@ -988,7 +984,7 @@ function goBack() {
                   <span class="review-time">{{ formatRelativeTime(rev.createdAt) }}</span>
                 </div>
                 <div v-if="rev.spoiler" class="badge badge-warning spoiler-tag">Contains Spoilers</div>
-                <p class="review-content">{{ rev.content }}</p>
+                <p v-if="rev.content" class="review-content">{{ rev.content }}</p>
               </div>
             </div>
           </div>

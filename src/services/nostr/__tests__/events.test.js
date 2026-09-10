@@ -122,13 +122,20 @@ describe('buildMediaMetadataEvent()', () => {
 })
 
 describe('buildReviewEvent()', () => {
-  it('requires a body and validates an optional rating', () => {
+  it('allows optional body and validates an optional rating', () => {
     const evt = buildReviewEvent(MOVIE, 'Still holds up.', { rating: 9, spoiler: true })
     expect(evt.kind).toBe(KINDS.REVIEW)
     expect(evt.content).toBe('Still holds up.')
     expect(evt.tags).toContainEqual(['rating', '9'])
     expect(evt.tags).toContainEqual(['spoiler', '1'])
-    expect(() => buildReviewEvent(MOVIE, '   ')).toThrow()
+
+    // Review body is not compulsory: empty or whitespace body produces empty content
+    const emptyEvt = buildReviewEvent(MOVIE, '   ')
+    expect(emptyEvt.content).toBe('')
+
+    const omittedEvt = buildReviewEvent(MOVIE)
+    expect(omittedEvt.content).toBe('')
+
     expect(() => buildReviewEvent(MOVIE, 'ok', { rating: 42 })).toThrow()
   })
 })

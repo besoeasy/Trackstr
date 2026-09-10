@@ -215,10 +215,8 @@ export function buildMediaMetadataEvent(media, metadata = {}) {
  * @param {boolean} [options.spoiler] Whether contains spoilers
  * @returns {Object} Unsigned event template
  */
-export function buildReviewEvent(media, body, options = {}) {
-  if (!body || !String(body).trim()) {
-    throw new Error('Review body is required.')
-  }
+export function buildReviewEvent(media, body = '', options = {}) {
+  const content = body ? String(body).trim() : ''
   const tags = [
     ['d', assertContentId(media?.contentId)], // Relay-indexed lookup tag (#d)
     ...buildBaseMediaTags(media),
@@ -235,7 +233,7 @@ export function buildReviewEvent(media, body, options = {}) {
     kind: KINDS.REVIEW,
     created_at: Math.floor(Date.now() / 1000),
     tags,
-    content: body || '',
+    content,
   }
 }
 
