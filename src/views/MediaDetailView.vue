@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
-import { useIpfsImage } from '@/composables/useIpfsImage.js'
+import { useMediaImage } from '@/composables/useMediaImage.js'
 import { buildDTag, cleanShowTitle, computeContentId } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
@@ -141,10 +141,10 @@ const youtubeSearchUrl = computed(() => {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${searchQueryBase.value} trailer`)}`
 })
 
-const { src: posterSrc, onError: onPosterError } = useIpfsImage(() => {
+const { src: posterSrc, onError: onPosterError } = useMediaImage(() => {
   return media.value.poster || ''
 })
-const { src: bannerSrc, onError: onBannerError } = useIpfsImage(() => {
+const { src: bannerSrc, onError: onBannerError } = useMediaImage(() => {
   return media.value.banner || ''
 })
 

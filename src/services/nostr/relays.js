@@ -11,13 +11,12 @@ export const DEFAULT_RELAYS = [
 ]
 
 export const MAX_RELAYS = 12
-const DEAD_RELAYS = ['wss://relay.damus.io']
 
 const STORAGE_KEY = 'trackstr_relays'
 
 /**
  * Sanitizes a raw relay list: trims, validates scheme, dedupes
- * (case-insensitive), drops dead relays, caps the count.
+ * (case-insensitive), caps the count.
  * @param {unknown} relays
  * @returns {string[]}
  */
@@ -28,7 +27,6 @@ export function sanitizeRelayList(relays) {
   for (const raw of relays) {
     const clean = normalizeRelayUrl(raw)
     if (!clean) continue
-    if (DEAD_RELAYS.includes(clean)) continue
     const key = clean.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
@@ -50,10 +48,6 @@ export function getRelays() {
       if (Array.isArray(parsed) && parsed.length > 0) {
         const clean = sanitizeRelayList(parsed)
         if (clean.length > 0) {
-          // Persist the sanitized form (migrates damus/typos/dupes away once).
-          if (JSON.stringify(clean) !== JSON.stringify(parsed)) {
-            saveRelays(clean)
-          }
           return clean
         }
       }

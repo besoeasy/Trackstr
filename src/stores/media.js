@@ -103,11 +103,9 @@ export const useMediaStore = defineStore('media', () => {
     const safeTags = Array.isArray(tags) ? tags : []
     const getTag = (name) => safeTags.find((t) => t[0] === name)?.[1]
     const rawCid = getTag('contentid') || ''
-    const dRaw = getTag('d') || ''
-    const base = (/^[0-9a-f]{64}$/i.test(rawCid) ? rawCid : dRaw.split(':')[0]) || ''
-    const contentId = /^[0-9a-f]{64}$/i.test(base) ? base.toLowerCase() : ''
+    const contentId = /^[0-9a-f]{64}$/i.test(rawCid) ? rawCid.toLowerCase() : ''
     const type = getTag('type') || ''
-    const name = getTag('name') || getTag('title') || ''
+    const name = getTag('name') || ''
     const year = getTag('year') || ''
     const season = getTag('season')
     const episode = getTag('episode')
@@ -134,7 +132,7 @@ export const useMediaStore = defineStore('media', () => {
    * view instead, stripping the " - S01E01: ..." suffix from the name.
    */
   function toShowLevel(episodeMedia) {
-    const raw = episodeMedia.name || episodeMedia.title || ''
+    const raw = episodeMedia.name || ''
     const name = cleanShowTitle(raw)
     return {
       ...episodeMedia,
@@ -500,7 +498,7 @@ export const useMediaStore = defineStore('media', () => {
         if (!evt || evt.kind === KINDS.DELETION || seenEventIds.has(evt.id)) return
         seenEventIds.add(evt.id)
         const getTag = (name) => (Array.isArray(evt.tags) ? evt.tags.find((t) => t[0] === name)?.[1] : undefined)
-        countMention(getTag('contentid') || getTag('d'), evt.created_at || 0)
+        countMention(getTag('contentid'), evt.created_at || 0)
       })
 
       // Fold in local-only state (including ratings, previously uncounted)

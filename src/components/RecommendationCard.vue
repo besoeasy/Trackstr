@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useIpfsImage } from '@/composables/useIpfsImage.js'
+import { useMediaImage } from '@/composables/useMediaImage.js'
 import { useMediaStore } from '@/stores/media.js'
 
 const props = defineProps({
@@ -16,9 +16,8 @@ const mediaStore = useMediaStore()
 
 const isEpisode = computed(() => props.item.type === 'episode' && props.item.season && props.item.episode)
 
-const { src: resolvedPoster, onError: onPosterError } = useIpfsImage(() => {
-  if (props.item.poster) return props.item.poster
-  return mediaStore.getMediaMetadata(props.item.contentId)?.poster || ''
+const { src: resolvedPoster, onError: onPosterError } = useMediaImage(() => {
+  return props.item.poster || ''
 })
 
 const reasonLabel = computed(() => {

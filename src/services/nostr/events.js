@@ -25,8 +25,8 @@ function assertMediaRef(media) {
   if (!MEDIA_TYPES.includes(media?.type)) {
     throw new Error(`Media type must be one of ${MEDIA_TYPES.join(', ')}.`)
   }
-  if (!media?.name && !media?.title) {
-    throw new Error('Media name/title is required on Nostr events.')
+  if (!media?.name) {
+    throw new Error('Media name is required on Nostr events.')
   }
 }
 
@@ -50,7 +50,7 @@ export function buildBaseMediaTags(media) {
     ['trackstr', APP_ID],
     ['contentid', media.contentId],
     ['type', media.type],
-    ['name', media.name || media.title],
+    ['name', media.name],
   ]
 
   if (media.year) {

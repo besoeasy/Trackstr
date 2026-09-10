@@ -35,16 +35,16 @@ describe('isSafeHttpUrl()', () => {
 })
 
 describe('media URL helpers', () => {
-  it('allows ipfs, https and site-relative art', () => {
-    expect(isSafeMediaUrl('ipfs://bafybei123')).toBe(true)
+  it('allows https and site-relative art', () => {
     expect(isSafeMediaUrl('https://image.tmdb.org/t/p/w500/x.jpg')).toBe(true)
     expect(isSafeMediaUrl('/favicon.ico')).toBe(true)
   })
 
-  it('blocks executable/data URLs', () => {
+  it('blocks executable/data/ipfs URLs', () => {
     expect(isSafeMediaUrl('javascript:alert(1)')).toBe(false)
     expect(isSafeMediaUrl('data:image/svg+xml,<svg onload=alert(1)>')).toBe(false)
     expect(isSafeMediaUrl('blob:https://x/y')).toBe(false)
+    expect(isSafeMediaUrl('ipfs://bafybei123')).toBe(false)
     expect(isSafeMediaUrl('')).toBe(false)
   })
 

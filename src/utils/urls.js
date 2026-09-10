@@ -29,16 +29,16 @@ export function isSafeHttpUrl(value) {
 }
 
 /**
- * Safe for <img src> / CSS url(): ipfs://, site-relative, or http(s).
- * Blocks javascript:, data:, vbscript:, blob:, file: schemes.
+ * Safe for <img src> / CSS url(): site-relative or http(s).
+ * Blocks javascript:, data:, vbscript:, blob:, file:, ipfs: schemes.
  */
 export function isSafeMediaUrl(value) {
   if (typeof value !== 'string') return false
   const v = value.trim()
   if (!v || /\s/.test(v)) return false
   if (/^[a-z0-9+.-]+:/i.test(v)) {
-    // Has an explicit scheme: allow only http(s) and ipfs.
-    return v.startsWith('ipfs://') || /^https?:\/\//i.test(v)
+    // Has an explicit scheme: allow only http(s).
+    return /^https?:\/\//i.test(v)
   }
   // No scheme: allow site-relative paths only.
   return v.startsWith('/')

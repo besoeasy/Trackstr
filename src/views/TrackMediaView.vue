@@ -5,7 +5,7 @@ import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { computeContentId, buildDTag } from '@/utils/contentId.js'
 import { formatStatus } from '@/utils/formatters.js'
-import { resolveIpfsUrl } from '@/composables/useIpfsImage.js'
+import { resolveMediaUrl } from '@/composables/useMediaImage.js'
 import { searchTmdb } from '@/services/api/tmdb.js'
 import { searchMusic } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
@@ -42,7 +42,7 @@ const failedSuggestionPosters = reactive(new Set())
 
 function suggestionPosterUrl(poster) {
   if (!poster || failedSuggestionPosters.has(poster)) return ''
-  return resolveIpfsUrl(poster)
+  return resolveMediaUrl(poster)
 }
 
 function onSuggestionPosterError(poster) {

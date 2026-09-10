@@ -6,9 +6,8 @@ beforeEach(() => {
 })
 
 describe('sanitizeRelayList()', () => {
-  it('drops dead, invalid and duplicate relays and caps the count', () => {
+  it('drops invalid and duplicate relays and caps the count', () => {
     const list = sanitizeRelayList([
-      'wss://relay.damus.io',
       'https://not-a-relay.example.com',
       '  wss://nos.lol/ ',
       'WSS://NOS.LOL',
@@ -37,10 +36,9 @@ describe('getRelays()', () => {
     expect(localStorage.getItem('trackstr_relays')).toBeNull()
   })
 
-  it('migrates damus away at any position', () => {
-    saveRelays(['wss://nos.lol', 'wss://relay.damus.io', 'wss://relay.primal.net'])
+  it('returns sanitized stored relays', () => {
+    saveRelays(['wss://nos.lol', 'wss://relay.primal.net'])
     const relays = getRelays()
-    expect(relays).not.toContain('wss://relay.damus.io')
-    expect(relays).toContain('wss://nos.lol')
+    expect(relays).toEqual(['wss://nos.lol', 'wss://relay.primal.net'])
   })
 })

@@ -50,7 +50,7 @@ function getMediaType(tags) {
 
 function getContentId(tags) {
   const t = safeTags(tags)
-  return t.find((t) => t[0] === 'contentid')?.[1] || t.find((t) => t[0] === 'd')?.[1] || ''
+  return t.find((t) => t[0] === 'contentid')?.[1] || ''
 }
 
 function getTagValue(tags, name) {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useIpfsImage } from '@/composables/useIpfsImage.js'
+import { useMediaImage } from '@/composables/useMediaImage.js'
 import { useMediaStore } from '@/stores/media.js'
 import { formatStatus, getStatusColorClass } from '@/utils/formatters.js'
 
@@ -15,10 +15,8 @@ const props = defineProps({
 const router = useRouter()
 const mediaStore = useMediaStore()
 
-const { src: resolvedPoster, onError: onPosterError } = useIpfsImage(() => {
-  if (props.media.poster) return props.media.poster
-  // Check if community metadata has poster for this contentId
-  return mediaStore.getMediaMetadata(props.media.contentId)?.poster || ''
+const { src: resolvedPoster, onError: onPosterError } = useMediaImage(() => {
+  return props.media.poster || ''
 })
 
 const userStatus = computed(() => {

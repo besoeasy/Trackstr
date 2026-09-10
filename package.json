@@ -1,7 +1,7 @@
 {
   "name": "trackstr",
   "version": "0.0.0",
-  "description": "Open-source media tracker — Letterboxd + Trakt + Last.fm alternative for movies, TV shows & music. Decentralized, privacy-first tracking, ratings, reviews & watchlists on Nostr + IPFS.",
+  "description": "Open-source media tracker — Letterboxd + Trakt + Last.fm alternative for movies, TV shows & music. Decentralized, privacy-first tracking, ratings, reviews & watchlists on Nostr.",
   "keywords": [
     "open-source",
     "media-tracker",
@@ -19,7 +19,6 @@
     "music-discovery",
     "decentralized",
     "nostr",
-    "ipfs",
     "privacy",
     "self-hosted",
     "social-network",

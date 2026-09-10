@@ -1,7 +1,7 @@
 {
   "name": "Trackstr — Open-Source Media Tracker",
   "short_name": "Trackstr",
-  "description": "Open-source Letterboxd + Trakt + Last.fm alternative. Track movies, TV shows & music — ratings, reviews, watchlists & scrobbles you own on Nostr + IPFS.",
+  "description": "Open-source Letterboxd + Trakt + Last.fm alternative. Track movies, TV shows & music — ratings, reviews, watchlists & scrobbles you own on Nostr.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

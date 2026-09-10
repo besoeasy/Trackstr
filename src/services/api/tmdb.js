@@ -28,7 +28,7 @@ export function getTmdbApiKey() {
 
 export function getTmdbImageUrl(path, size = 'w500') {
   if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('ipfs://')) {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
     return path
   }
   return `${TMDB_IMAGE_BASE}/${size}${path}`
