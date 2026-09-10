@@ -6,13 +6,13 @@
 [![Live Demo](https://img.shields.io/badge/demo-trackstr.besoeasy.com-blue?style=flat-square)](https://trackstr.besoeasy.com/)
 [![Protocol](https://img.shields.io/badge/protocol-nostr-purple?style=flat-square)](https://nostr.com/)
 [![Stack](https://img.shields.io/badge/stack-Vue%203%20%7C%20Vite-emerald?style=flat-square)](https://vuejs.org/)
-[![Tests](https://img.shields.io/badge/tests-150%20passing-brightgreen?style=flat-square)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen?style=flat-square)](#-testing)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Open-lightgrey?style=flat-square)](#-license)
 
 Trackstr unites personal media tracking and an open social layer into a single decentralized stack:
 
-1. **For Users:** A unified personal tracker for **movies, TV shows & episodes, and music**. Track watchlists, rate (1–10), write spoiler-tagged reviews, scrobble your listening history, and follow friends. You own your identity, diary, and social graph via **Nostr** cryptographic keys.
-2. **For Developers & The Open Web:** An open, permissionless protocol. Your media diary, ratings, and social interactions live on Nostr relays, accessible to any developer without API keys or vendor lock-in.
+1. **For Users:** A unified personal tracker for **movies, TV shows & episodes, and music**. Track watchlists, rate (1–10), write spoiler-tagged reviews, discover community similar suggestions, and follow friends. You own your identity, library, and social graph via **Nostr** cryptographic keys.
+2. **For Developers & The Open Web:** An open, permissionless protocol. Your media library, ratings, suggestions, and social interactions live on Nostr relays, accessible to any developer without API keys or vendor lock-in.
 
 ---
 
@@ -30,8 +30,9 @@ Trackstr unites personal media tracking and an open social layer into a single d
 
 ## ✨ Features
 
-- 🎬 **Unified Media Tracking:** Log films, follow TV series season-by-season and episode-by-episode, and scrobble music albums and tracks.
+- 🎬 **Unified Media Tracking:** Track films, follow TV series season-by-season and episode-by-episode, and track music albums and tracks.
 - ⭐ **Ratings & Reviews:** 1–10 scale ratings (half-steps supported) and permanent, spoiler-tagged reviews.
+- 💡 **Community Similar Suggestions:** Crowd-sourced recommendation graph (Kind 35401) where users suggest similar titles, creating a decentralized feedback loop without black-box algorithms.
 - 📋 **Flexible Libraries:** Manage statuses (`plan-to-watch`, `watching`, `completed`, `on-hold`, `dropped`, `plan-to-listen`, `listening`).
 - 🌐 **Open Media Presentation:** Client-side integration with open sources like Wikipedia, TVMaze, and MusicBrainz without proprietary vendor lock-in.
 - 🔐 **Cryptographic Auth:** Log in with NIP-07 browser extensions (Alby, nos2x) or local `nsec` keys. Zero email/password dependencies.
@@ -47,11 +48,10 @@ Trackstr replaces centralized REST APIs with open Nostr event kinds and determin
 
 | Kind | Type | NIP | Purpose |
 | :--- | :--- | :--- | :--- |
-| **`35400`** | Parameterized Replaceable | NIP-33 | Mutable rating (1–10). Keyed by `d` tag (`contentid` or `contentid:s{season}e{episode}`). |
+| **`35400`** | Parameterized Replaceable | NIP-33 | Mutable user rating (1–10) & written reviews (with spoiler flags). Keyed by `d` tag (`contentid` or `contentid:s{season}e{episode}`). |
+| **`35401`** | Parameterized Replaceable | NIP-33 | Mutable similar title suggestions (community recommendation feedback loop). Keyed by `d` tag (`source_contentid`). |
 | **`35402`** | Parameterized Replaceable | NIP-33 | Mutable watch/listen status and episode progress. |
-| **`5401`** | Regular (Immutable) | NIP-01 | Permanent historical reviews (with spoiler flags & ratings). |
-| **`5402`** | Regular (Immutable) | NIP-01 | Permanent scrobble / check-in activity diary entries. |
-| **`5`** | Deletion | NIP-09 | Cryptographic deletion notices. |
+| **`5`** | Deletion | NIP-09 | Cryptographic deletion notices referencing replaceable coordinates. |
 
 ### 2. Provider-Free Canonical Content ID
 
@@ -82,7 +82,7 @@ const relays = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net
 
 // Query all ratings and reviews for any title by contentId
 const events = await pool.querySync(relays, {
-  kinds: [35400, 5401],
+  kinds: [35400],
   '#d': [contentId]
 })
 ```

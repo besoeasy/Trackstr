@@ -10,11 +10,13 @@ const mediaStore = useMediaStore()
 
 const feed = ref([])
 const isLoading = ref(false)
-const filterType = ref('all') // 'all' | 'reviews' | 'scrobbles'
+const filterType = ref('all') // 'all' | 'reviews' | 'suggestions'
 
 const filteredFeed = computed(() => {
-  if (filterType.value === 'reviews') return feed.value.filter((e) => e?.kind === 5401)
-  if (filterType.value === 'scrobbles') return feed.value.filter((e) => e?.kind === 5402)
+  if (filterType.value === 'reviews') {
+    return feed.value.filter((e) => (e?.kind === 35400 && e?.content) || e?.kind === 5401)
+  }
+  if (filterType.value === 'suggestions') return feed.value.filter((e) => e?.kind === 35401)
   return feed.value
 })
 
@@ -55,6 +57,30 @@ function getTagValue(tags, name) {
   return safeTags(tags).find((t) => t[0] === name)?.[1]
 }
 
+function getSimilarItems(tags) {
+  return safeTags(tags)
+    .filter((t) => t[0] === 'similar')
+    .map((t) => ({
+      contentId: t[1],
+      type: t[2] || 'movie',
+      name: t[3] || 'Similar Title',
+      year: t[4] || '',
+    }))
+}
+
+function navigateToContentId(contentId, type = 'movie', title = '', year = '') {
+  if (!contentId) return
+  router.push({
+    name: 'media-detail',
+    params: { contentId },
+    query: {
+      type,
+      title,
+      year,
+    },
+  })
+}
+
 function navigateToMedia(tags) {
   const contentId = getContentId(tags)
   if (contentId) {
@@ -86,9 +112,9 @@ function navigateToMedia(tags) {
   <div class="activity-view">
     <div class="activity-header">
       <div>
-        <h1 class="page-title">Activity & Scrobbles</h1>
+        <h1 class="page-title">Activity & Suggestions</h1>
         <p class="page-subtitle">
-          Real-time decentralized feed of reviews (Kind 5401) and check-ins (Kind 5402) across relays
+          Real-time decentralized feed of ratings & reviews (Kind 35400) and community suggestions (Kind 35401) across relays
         </p>
       </div>
 
@@ -113,15 +139,15 @@ function navigateToMedia(tags) {
         type="button"
         @click="filterType = 'reviews'"
       >
-        Reviews (5401)
+        Reviews & Ratings (35400)
       </button>
       <button
         class="tab-btn"
-        :class="{ 'is-active': filterType === 'scrobbles' }"
+        :class="{ 'is-active': filterType === 'suggestions' }"
         type="button"
-        @click="filterType = 'scrobbles'"
+        @click="filterType = 'suggestions'"
       >
-        Check-ins / Scrobbles (5402)
+        Suggestions (35401)
       </button>
     </div>
 
@@ -132,8 +158,8 @@ function navigateToMedia(tags) {
 
     <div v-else-if="filteredFeed.length === 0" class="empty-state card">
       <p v-if="feed.length === 0">No activity events detected on active relays.</p>
-      <p v-else>No {{ filterType === 'reviews' ? 'reviews' : 'check-ins / scrobbles' }} in this feed yet.</p>
-      <p class="form-hint">Track a movie, write a review, or check in to broadcast your activity.</p>
+      <p v-else>No {{ filterType === 'reviews' ? 'reviews' : 'suggestions' }} in this feed yet.</p>
+      <p class="form-hint">Track a movie, write a review, or suggest similar titles to broadcast your activity.</p>
     </div>
 
     <div v-else class="timeline-container">
@@ -145,13 +171,34 @@ function navigateToMedia(tags) {
         <div class="timeline-header">
           <div class="timeline-user">
             <span class="contentid-chip">{{ (evt.pubkey || '').slice(0, 8) }}...{{ (evt.pubkey || '').slice(-4) }}</span>
-            <span v-if="evt.kind === 5401" class="badge badge-info">Review</span>
-            <span v-else-if="evt.kind === 5402" class="badge badge-success">Check-in</span>
+            <span v-if="(evt.kind === 35400 && evt.content) || evt.kind === 5401" class="badge badge-info">Review</span>
+            <span v-else-if="evt.kind === 35400" class="badge badge-warning">Rating</span>
+            <span v-else-if="evt.kind === 35401" class="badge badge-accent">Suggestion</span>
           </div>
           <span class="timeline-time">{{ formatRelativeTime(evt.created_at) }}</span>
         </div>
 
-        <div class="timeline-media" @click="navigateToMedia(evt.tags)">
+        <!-- Suggestion display for Kind 35401 -->
+        <div v-if="evt.kind === 35401" class="timeline-suggestion-box">
+          <div class="suggestion-flow">
+            <span class="flow-label">Similar to</span>
+            <span class="flow-source" @click="navigateToMedia(evt.tags)">{{ getMediaTitle(evt.tags) }}</span>
+            <span class="flow-arrow">➔</span>
+            <div class="suggested-items-chips">
+              <span
+                v-for="sug in getSimilarItems(evt.tags)"
+                :key="sug.contentId"
+                class="suggested-chip"
+                @click.stop="navigateToContentId(sug.contentId, sug.type, sug.name, sug.year)"
+              >
+                💡 {{ sug.name }} <template v-if="sug.year">({{ sug.year }})</template>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Standard media display for Kind 35400 -->
+        <div v-else class="timeline-media" @click="navigateToMedia(evt.tags)">
           <span class="badge badge-primary">{{ getMediaType(evt.tags) === 'episode' ? 'show' : getMediaType(evt.tags) }}</span>
           <span class="timeline-media-title">{{ getMediaTitle(evt.tags) }}</span>
           <span v-if="getTagValue(evt.tags, 'rating')" class="timeline-rating">
@@ -274,6 +321,63 @@ function navigateToMedia(tags) {
 
 [data-theme='light'] .timeline-content {
   background: #f9f9f9;
+}
+
+.timeline-suggestion-box {
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+}
+
+.suggestion-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.flow-label {
+  color: var(--text-muted);
+}
+
+.flow-source {
+  color: var(--text-main);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.flow-arrow {
+  color: var(--accent-primary);
+  font-weight: bold;
+}
+
+.suggested-items-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.suggested-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(230, 0, 103, 0.1);
+  color: var(--accent-primary);
+  border: 1px solid rgba(230, 0, 103, 0.25);
+  border-radius: var(--radius-pill);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.suggested-chip:hover {
+  background: rgba(230, 0, 103, 0.2);
+  border-color: var(--accent-primary);
 }
 
 @media (max-width: 640px) {

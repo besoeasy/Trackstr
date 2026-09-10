@@ -4,11 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { useIpfsImage } from '@/composables/useIpfsImage.js'
-import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle, computeContentId } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
 import { formatRelativeTime, formatStatus, getStatusColorClass } from '@/utils/formatters.js'
-import { getTmdbDetails } from '@/services/api/tmdb.js'
-import { getMusicDetails } from '@/services/api/music.js'
+import { getTmdbDetails, searchTmdb } from '@/services/api/tmdb.js'
+import { getMusicDetails, searchMusic } from '@/services/api/music.js'
 import RatingInput from '@/components/RatingInput.vue'
 import StatusPicker from '@/components/StatusPicker.vue'
 import TvEpisodeTracker from '@/components/TvEpisodeTracker.vue'
@@ -75,13 +75,15 @@ const media = ref({
 
 const copied = ref(false)
 
-// Inline check-in / scrobble panel state
-const showCheckIn = ref(false)
-const checkInStatus = ref('watching')
-const checkInProgress = ref('')
-const checkInNote = ref('')
-const isLoggingCheckIn = ref(false)
-const checkInError = ref('')
+// Similar suggestions modal state (Kind 35401)
+const showSuggestionModal = ref(false)
+const suggestionQuery = ref('')
+const isSearchingSuggestions = ref(false)
+const suggestionResults = ref([])
+const selectedSimilarMedia = ref(null)
+const suggestionNote = ref('')
+const isSubmittingSuggestion = ref(false)
+const suggestionError = ref('')
 
 // Inline review modal state
 const showReviewModal = ref(false)
@@ -102,17 +104,17 @@ const userRating = computed(() => {
 })
 
 
-// Reviews for this media (Kind 5401)
+// Reviews for this media (Kind 35400)
 const mediaReviews = computed(() => {
   return mediaStore.getReviewsForMedia(contentId.value)
 })
 
-// Scrobbles / Check-ins for this media (Kind 5402)
-const mediaActivity = computed(() => {
-  return mediaStore.getActivityForMedia(contentId.value)
+// Similar suggestions for this media (Kind 35401)
+const mediaSimilarSuggestions = computed(() => {
+  return mediaStore.getSimilarSuggestionsForMedia(contentId.value)
 })
 
-// Community average score from Nostr signals (Kind 35400 + Kind 5401 ratings)
+// Community average score from Nostr signals (Kind 35400 ratings)
 const nostrAvgRating = computed(() => {
   return mediaStore.getAverageRatingForMedia(contentId.value)
 })
@@ -371,8 +373,9 @@ function openReviewModal() {
     authStore.openLoginModal()
     return
   }
-  reviewBody.value = ''
-  reviewSpoiler.value = false
+  const existing = mediaStore.getMediaReview(contentId.value)
+  reviewBody.value = existing?.content || ''
+  reviewSpoiler.value = existing?.spoiler || false
   reviewError.value = ''
   refreshReviewSuggestions()
   showReviewModal.value = true
@@ -408,61 +411,101 @@ async function submitReview() {
   }
 }
 
-function openCheckInModal() {
-  showCheckIn.value = !showCheckIn.value
-  if (showCheckIn.value) {
-    checkInStatus.value = media.value.type === 'music' ? 'listening' : 'watching'
-    checkInError.value = ''
+function openSuggestionModal() {
+  showSuggestionModal.value = true
+  suggestionQuery.value = ''
+  suggestionResults.value = []
+  selectedSimilarMedia.value = null
+  suggestionNote.value = ''
+  suggestionError.value = ''
+}
+
+async function searchSimilarMedia() {
+  const q = (suggestionQuery.value || '').trim()
+  if (!q) {
+    suggestionResults.value = []
+    return
+  }
+  isSearchingSuggestions.value = true
+  suggestionError.value = ''
+  try {
+    let results = []
+    if (media.value.type === 'music') {
+      const musicRes = await searchMusic(q)
+      results = (musicRes || []).map((item) => ({
+        contentId: item.contentId || computeContentId('music', item.title, item.year, item.artist),
+        type: 'music',
+        name: item.title,
+        title: item.title,
+        artist: item.artist,
+        year: item.year,
+        poster: item.poster,
+      }))
+    } else {
+      const tmdbRes = await searchTmdb(q, media.value.type === 'show' ? 'tv' : 'multi')
+      results = (tmdbRes || []).map((item) => ({
+        contentId: item.contentId || computeContentId(item.type || 'movie', item.title || item.name, item.year),
+        type: item.type || 'movie',
+        name: item.title || item.name,
+        title: item.title || item.name,
+        year: item.year,
+        poster: item.poster,
+      }))
+    }
+    // Exclude current media
+    suggestionResults.value = results.filter((r) => r.contentId !== contentId.value)
+  } catch (err) {
+    console.error('Failed to search similar media:', err)
+    suggestionError.value = 'Failed to search media.'
+  } finally {
+    isSearchingSuggestions.value = false
   }
 }
 
-/**
- * Parses "S01E03" / "s1e3" into numbers so episode check-ins land on the
- * addressable episode d-tag instead of clobbering the parent show.
- */
-function parseEpisodeProgress(text) {
-  const m = /^\s*s?(\d{1,2})\s*e\s*(\d{1,3})\s*$/i.exec(text || '')
-  if (!m) return null
-  return { season: Number(m[1]), episode: Number(m[2]) }
+function selectSimilarItem(item) {
+  selectedSimilarMedia.value = item
 }
 
-async function submitCheckIn() {
+async function submitSimilarSuggestion() {
   if (!authStore.isAuthenticated) {
     authStore.openLoginModal()
     return
   }
-  isLoggingCheckIn.value = true
-  checkInError.value = ''
-  try {
-    let entry = media.value
-    let progressText = checkInProgress.value
-    if (media.value.type === 'show') {
-      const ep = parseEpisodeProgress(checkInProgress.value)
-      if (ep) {
-        // Match TvEpisodeTracker's episode naming so the same episode tracked
-        // from either surface publishes an identical `name` tag on Nostr.
-        const showTitle = media.value.title || media.value.name || 'Show'
-        const epName = `${showTitle} - S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`
-        entry = {
-          ...media.value,
-          type: 'episode',
-          season: ep.season,
-          episode: ep.episode,
-          name: epName,
-          title: epName,
-        }
-        progressText = `s${ep.season}e${ep.episode}`
-      }
-    }
-    await mediaStore.setStatus(entry, checkInStatus.value, progressText, checkInNote.value)
-    showCheckIn.value = false
-    checkInProgress.value = ''
-    checkInNote.value = ''
-  } catch (err) {
-    checkInError.value = err.message || 'Failed to log check-in to Nostr.'
-  } finally {
-    isLoggingCheckIn.value = false
+  if (!selectedSimilarMedia.value) {
+    suggestionError.value = 'Please select a title to suggest.'
+    return
   }
+  isSubmittingSuggestion.value = true
+  suggestionError.value = ''
+  try {
+    await mediaStore.addSimilarSuggestion(
+      media.value,
+      selectedSimilarMedia.value,
+      suggestionNote.value
+    )
+    showSuggestionModal.value = false
+    selectedSimilarMedia.value = null
+    suggestionNote.value = ''
+    suggestionQuery.value = ''
+  } catch (err) {
+    suggestionError.value = err.message || 'Failed to submit suggestion to Nostr.'
+  } finally {
+    isSubmittingSuggestion.value = false
+  }
+}
+
+function navigateToMedia(item) {
+  if (!item?.contentId) return
+  router.push({
+    name: 'media-detail',
+    params: { contentId: item.contentId },
+    query: {
+      type: item.type || 'movie',
+      title: item.name || item.title || '',
+      year: item.year || '',
+      artist: item.artist || '',
+    },
+  })
 }
 
 function copyContentId() {
@@ -581,12 +624,12 @@ function goBack() {
             </button>
           </div>
 
-          <!-- Community average score from Nostr events (Kind 35400 + 5401) -->
+          <!-- Community average score from Nostr events (Kind 35400) -->
           <div class="nostr-avg-row">
             <span
               v-if="nostrAvgRating"
               class="badge badge-nostr-avg"
-              :title="`Nostr community average from ${nostrAvgRating.ratingsCount} rating${nostrAvgRating.ratingsCount === 1 ? '' : 's'} (Kind 35400) + ${nostrAvgRating.reviewsCount} review score${nostrAvgRating.reviewsCount === 1 ? '' : 's'} (Kind 5401)`"
+              :title="`Nostr community average from ${nostrAvgRating.ratingsCount} rating${nostrAvgRating.ratingsCount === 1 ? '' : 's'} (Kind 35400)${nostrAvgRating.reviewsCount > 0 ? ` including ${nostrAvgRating.reviewsCount} written review${nostrAvgRating.reviewsCount === 1 ? '' : 's'}` : ''}`"
             >
               ★ {{ nostrAvgRating.average }}/10 Nostr Avg · {{ nostrAvgRating.count }} vote{{ nostrAvgRating.count === 1 ? '' : 's' }}
             </span>
@@ -715,7 +758,7 @@ function goBack() {
                 </label>
 
                 <p class="form-hint">
-                  Reviews are published as permanent, append-only Nostr events (Kind 5401) referencing this media's canonical Content ID.
+                  Ratings and reviews are published as mutable Nostr events (Kind 35400) referencing this media's canonical Content ID.
                 </p>
 
                 <div class="review-modal-actions">
@@ -783,11 +826,11 @@ function goBack() {
             </div>
           </div>
 
-          <!-- Community Reviews (Kind 5401) -->
+          <!-- Community Reviews (Kind 35400) -->
           <div class="community-section">
             <div class="community-header">
               <h3 class="section-heading">
-                Nostr Reviews (Kind 5401)
+                Nostr Reviews (Kind 35400)
                 <span class="count-badge">{{ mediaReviews.length }}</span>
               </h3>
             </div>
@@ -814,84 +857,173 @@ function goBack() {
             </div>
           </div>
 
-          <!-- Scrobbles / Diary (Kind 5402) -->
+          <!-- Similar Suggestions (Kind 35401) -->
           <div class="community-section">
             <div class="community-header">
-              <h3 class="section-heading">
-                Activity Logs & Scrobbles (Kind 5402)
-                <span class="count-badge">{{ mediaActivity.length }}</span>
-              </h3>
+              <div>
+                <h3 class="section-heading">
+                  💡 Similar Suggestions
+                  <span class="count-badge">{{ mediaSimilarSuggestions.length }}</span>
+                </h3>
+                <p class="section-subtext">Community recommendations for fans of this {{ media.type === 'music' ? 'music' : (media.type === 'show' ? 'show' : 'movie') }}</p>
+              </div>
               <button
                 class="btn btn-outline btn-sm"
                 type="button"
-                :aria-expanded="showCheckIn"
-                @click="openCheckInModal"
+                @click="openSuggestionModal"
               >
-                ⏱️ + Log Check-in
+                💡 + Suggest Similar
               </button>
             </div>
 
-            <!-- Inline Check-in Form in Activity section -->
-            <transition name="expand">
-              <div v-if="showCheckIn" class="checkin-inline card">
-                <div v-if="checkInError" class="badge badge-danger error-banner">
-                  {{ checkInError }}
+            <div v-if="mediaSimilarSuggestions.length === 0" class="empty-community card">
+              <p>No similar titles suggested yet by the community.</p>
+              <button class="btn btn-outline btn-sm" type="button" @click="openSuggestionModal">
+                Suggest the first similar title
+              </button>
+            </div>
+
+            <div v-else class="similar-suggestions-grid">
+              <div
+                v-for="sug in mediaSimilarSuggestions"
+                :key="sug.contentId"
+                class="similar-card card"
+                @click="navigateToMedia(sug)"
+              >
+                <div class="similar-card-poster">
+                  <img
+                    v-if="sug.poster"
+                    :src="sug.poster"
+                    :alt="sug.name || sug.title"
+                    loading="lazy"
+                    class="similar-poster-img"
+                  />
+                  <div v-else class="similar-poster-placeholder">
+                    <span>{{ sug.type === 'music' ? '🎵' : (sug.type === 'show' ? '📺' : '🎬') }}</span>
+                  </div>
                 </div>
-                <div class="checkin-fields">
-                  <label class="checkin-field">
-                    <span class="action-label">Activity</span>
-                    <select v-model="checkInStatus" class="select">
-                      <option v-if="media.type === 'music'" value="listening">Listening Now</option>
-                      <option v-if="media.type === 'music'" value="completed">Finished Album / Track</option>
-                      <option v-if="media.type !== 'music'" value="watching">Watching Now</option>
-                      <option v-if="media.type !== 'music'" value="completed">Finished Watching</option>
-                    </select>
-                  </label>
-                  <label v-if="media.type === 'show'" class="checkin-field">
-                    <span class="action-label">Progress (S01E03)</span>
-                    <input v-model="checkInProgress" type="text" class="input" placeholder="e.g. S01E03" />
-                  </label>
-                  <label class="checkin-field checkin-note">
-                    <span class="action-label">Note (Optional)</span>
-                    <input v-model="checkInNote" type="text" class="input" placeholder="e.g. Rewatched in 4K" />
-                  </label>
+                <div class="similar-card-info">
+                  <div class="similar-card-top">
+                    <span class="badge badge-accent badge-sm">{{ sug.type }}</span>
+                    <span class="badge badge-success badge-sm">
+                      👍 {{ sug.voteCount }} {{ sug.voteCount === 1 ? 'vote' : 'votes' }}
+                    </span>
+                  </div>
+                  <h4 class="similar-title">{{ sug.name || sug.title }}</h4>
+                  <div class="similar-meta">
+                    <span v-if="sug.year">{{ sug.year }}</span>
+                    <span v-if="sug.artist" class="similar-artist">• {{ sug.artist }}</span>
+                  </div>
+                  <div v-if="sug.notes && sug.notes.length > 0" class="similar-notes">
+                    <p class="similar-note-text">"{{ sug.notes[0] }}"</p>
+                  </div>
                 </div>
-                <p class="form-hint">
-                  Emits a Mutable Status update (Kind 35402) and an Immutable check-in log (Kind 5402).
-                </p>
-                <div class="checkin-actions">
-                  <button class="btn btn-secondary btn-sm" type="button" @click="showCheckIn = false">
+              </div>
+            </div>
+          </div>
+
+          <!-- Similar Suggestion Modal -->
+          <transition name="fade">
+            <div v-if="showSuggestionModal" class="modal-overlay" @click.self="showSuggestionModal = false">
+              <div class="suggestion-modal card" role="dialog" aria-modal="true" aria-label="Suggest similar title">
+                <div class="suggestion-modal-header">
+                  <div class="suggestion-modal-title">
+                    <span class="suggestion-modal-icon">💡</span>
+                    <div>
+                      <h3 class="suggestion-modal-heading">Suggest Similar Title</h3>
+                      <p class="suggestion-modal-sub">
+                        Recommend a title similar to <strong>{{ media.title || media.name }}</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <button class="btn btn-icon btn-sm" type="button" aria-label="Close" @click="showSuggestionModal = false">
+                    ✕
+                  </button>
+                </div>
+
+                <div v-if="suggestionError" class="badge badge-danger error-banner">
+                  {{ suggestionError }}
+                </div>
+
+                <div class="suggestion-search-box">
+                  <label class="action-label">Find a title to suggest</label>
+                  <div class="suggestion-search-input-wrap">
+                    <input
+                      v-model="suggestionQuery"
+                      type="text"
+                      class="input"
+                      placeholder="Search movie, show, or music..."
+                      @keyup.enter="searchSimilarMedia"
+                    />
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="isSearchingSuggestions || !suggestionQuery.trim()"
+                      @click="searchSimilarMedia"
+                    >
+                      {{ isSearchingSuggestions ? 'Searching...' : 'Search' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="suggestionResults.length > 0" class="suggestion-results-list">
+                  <div
+                    v-for="item in suggestionResults"
+                    :key="item.contentId"
+                    class="suggestion-result-row"
+                    :class="{ 'selected': selectedSimilarMedia?.contentId === item.contentId }"
+                    @click="selectSimilarItem(item)"
+                  >
+                    <div class="suggestion-row-poster">
+                      <img v-if="item.poster" :src="item.poster" :alt="item.name || item.title" />
+                      <span v-else>{{ item.type === 'music' ? '🎵' : (item.type === 'show' ? '📺' : '🎬') }}</span>
+                    </div>
+                    <div class="suggestion-row-meta">
+                      <div class="suggestion-row-title">{{ item.name || item.title }}</div>
+                      <div class="suggestion-row-detail">
+                        <span class="badge badge-sm badge-accent">{{ item.type }}</span>
+                        <span v-if="item.year">{{ item.year }}</span>
+                        <span v-if="item.artist">• {{ item.artist }}</span>
+                      </div>
+                    </div>
+                    <div class="suggestion-row-check">
+                      {{ selectedSimilarMedia?.contentId === item.contentId ? '✓ Selected' : 'Select' }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="selectedSimilarMedia" class="selected-similar-box">
+                  <span class="selected-label">Selected:</span>
+                  <strong>{{ selectedSimilarMedia.name || selectedSimilarMedia.title }}</strong>
+                  <span v-if="selectedSimilarMedia.year">({{ selectedSimilarMedia.year }})</span>
+                </div>
+
+                <div class="suggestion-note-field">
+                  <label class="action-label">Why is it similar? (Optional)</label>
+                  <input
+                    v-model="suggestionNote"
+                    type="text"
+                    class="input"
+                    placeholder="e.g. Similar vibe, same director, shared atmosphere..."
+                  />
+                </div>
+
+                <div class="suggestion-modal-footer">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showSuggestionModal = false">
                     Cancel
                   </button>
                   <button
                     class="btn btn-primary btn-sm"
                     type="button"
-                    :disabled="isLoggingCheckIn"
-                    @click="submitCheckIn"
+                    :disabled="isSubmittingSuggestion || !selectedSimilarMedia"
+                    @click="submitSimilarSuggestion"
                   >
-                    {{ isLoggingCheckIn ? 'Logging...' : 'Sign & Log Check-in' }}
+                    {{ isSubmittingSuggestion ? 'Publishing...' : 'Publish Suggestion (Kind 35401)' }}
                   </button>
                 </div>
               </div>
-            </transition>
-
-            <div v-if="mediaActivity.length === 0" class="empty-community card">
-              <p>No activity logs recorded yet for this title.</p>
-              <button class="btn btn-outline btn-sm" type="button" @click="openCheckInModal">
-                Log your first check-in
-              </button>
             </div>
-
-            <div v-else class="activity-list">
-              <div v-for="act in mediaActivity" :key="act.id" class="activity-log-item">
-                <span class="badge" :class="getStatusColorClass(act.status)">{{ formatStatus(act.status) }}</span>
-                <span v-if="act.progress" class="activity-progress">[{{ act.progress }}]</span>
-                <span class="activity-user">{{ (act.pubkey || '').slice(0, 8) }}...</span>
-                <span v-if="act.content" class="activity-note">"{{ act.content }}"</span>
-                <span class="activity-date">{{ formatRelativeTime(act.createdAt) }}</span>
-              </div>
-            </div>
-          </div>
+          </transition>
         </div>
       </div>
     </div>
@@ -1415,56 +1547,95 @@ function goBack() {
   font-size: 2rem;
 }
 
-.checkin-inline {
-  margin: 16px 0 20px;
-  padding: 20px;
-  background: var(--bg-surface);
+.similar-suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.similar-card {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.similar-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-hover);
+}
+
+.similar-card-poster {
+  width: 60px;
+  height: 90px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.similar-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.similar-poster-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.similar-card-info {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.checkin-inline .error-banner {
-  display: block;
-  padding: 8px 12px;
-}
-
-.checkin-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
-  gap: 12px;
-}
-
-@media (max-width: 640px) {
-  .checkin-fields {
-    grid-template-columns: 1fr;
-  }
-}
-
-.checkin-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
-.checkin-actions {
+.similar-card-top {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
-.expand-enter-active,
-.expand-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+.similar-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
+.similar-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.similar-notes {
+  margin-top: 4px;
+}
+
+.similar-note-text {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .reviews-list {
@@ -1520,62 +1691,162 @@ function goBack() {
   white-space: pre-line;
 }
 
-.activity-list {
+/* Suggestion Modal */
+.suggestion-modal {
+  width: 100%;
+  max-width: 540px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
-.activity-log-item {
+.suggestion-modal-header {
   display: flex;
-  align-items: center;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.suggestion-modal-title {
+  display: flex;
   gap: 12px;
-  padding: 14px 18px;
-  background: var(--bg-card);
+  align-items: center;
+}
+
+.suggestion-modal-icon {
+  font-size: 1.6rem;
+}
+
+.suggestion-modal-heading {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.suggestion-modal-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.suggestion-search-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion-search-input-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.suggestion-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  font-size: 0.86rem;
-  transition: border-color var(--transition-fast);
+  padding: 6px;
+  background: var(--bg-surface);
 }
 
-.activity-log-item:hover {
-  border-color: var(--border-hover);
+.suggestion-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
 }
 
-.activity-progress {
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-  font-size: 0.78rem;
+.suggestion-result-row:hover {
+  background: var(--bg-card);
 }
 
-.activity-user {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
+.suggestion-result-row.selected {
+  background: rgba(230, 0, 103, 0.12);
+  border: 1px solid var(--accent-primary);
 }
 
-.activity-note {
-  color: var(--text-secondary);
-  font-style: italic;
+.suggestion-row-poster {
+  width: 36px;
+  height: 50px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.activity-date {
-  margin-left: auto;
+.suggestion-row-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.suggestion-row-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.suggestion-row-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-row-detail {
   font-size: 0.75rem;
   color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
 }
 
-@media (max-width: 640px) {
-  .activity-log-item {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
+.suggestion-row-check {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
 
-  .activity-date {
-    width: 100%;
-    margin-left: 0;
-    font-size: 0.72rem;
-  }
+.selected-similar-box {
+  padding: 10px 14px;
+  background: rgba(230, 0, 103, 0.08);
+  border: 1px solid rgba(230, 0, 103, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.selected-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.suggestion-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestion-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .badge-tmdb-score {

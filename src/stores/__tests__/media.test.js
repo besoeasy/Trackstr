@@ -138,7 +138,7 @@ describe('verified publishing', () => {
     const { media } = setupStores()
     await media.setStatus(movie, 'watching')
     expect(media.getMediaStatus(CID)?.status).toBe('watching')
-    expect(stubs.publish).toHaveBeenCalledTimes(2) // 35402 + 5402 log
+    expect(stubs.publish).toHaveBeenCalledTimes(1) // 35402 mutable status
   })
 })
 
@@ -194,7 +194,7 @@ describe('inbound NIP-09 deletions', () => {
   it('removes your review when your own e-deletion arrives', async () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
-      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: KINDS.RATING, tags: baseTags({ rating: '8' }), content: 'great' },
     ])
     await media.syncUserData(OWN)
     expect(media.getReviewsForMedia(CID)).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('inbound NIP-09 deletions', () => {
   it('ignores forged deletions for somebody else’s records', async () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
-      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: KINDS.RATING, tags: baseTags({ rating: '8' }), content: 'great' },
       statusEvent({ status: 'watching', at: 1000, id: 'e1' }),
     ])
     await media.syncUserData(OWN)
@@ -232,12 +232,10 @@ describe('inbound NIP-09 deletions', () => {
     expect(media.getMediaStatus(CID)).toBeNull()
   })
 
-
-
   it('never renders deletion notices as feed items', async () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
-      { id: 'r1', pubkey: OWN, created_at: 1000, kind: 5401, tags: baseTags(), content: 'great' },
+      { id: 'r1', pubkey: OWN, created_at: 1000, kind: KINDS.RATING, tags: baseTags({ rating: '8' }), content: 'great' },
       deletionById(OWN, 'r9', 'del1'),
     ])
     const feed = await media.fetchRecentFeed(10)
@@ -446,4 +444,164 @@ describe('getDiscoveredEpisodesForMedia()', () => {
     expect(discovered[1].episode).toBe(1)
     expect(discovered[1].name).toBe('Pilot')
   })
+
+  describe('Unified Ratings and Reviews (Kind 35400)', () => {
+    it('stores rating and written review together in Kind 35400', async () => {
+      const { media } = setupStores()
+      stubs.queryEvents.mockResolvedValueOnce([
+        {
+          id: 'rate-rev-1',
+          pubkey: OWN,
+          created_at: 1200,
+          kind: KINDS.RATING,
+          tags: [
+            ['d', CID],
+            ['contentid', CID],
+            ['trackstr', 'web'],
+            ['type', 'movie'],
+            ['name', 'Fight Club'],
+            ['year', '1999'],
+            ['rating', '9'],
+            ['spoiler', '1'],
+          ],
+          content: 'A classic mind-bender.',
+        },
+      ])
+      await media.syncUserData(OWN)
+
+      const rating = media.getMediaRating(CID)
+      expect(rating).toBe(9)
+
+      const reviews = media.getReviewsForMedia(CID)
+      expect(reviews).toHaveLength(1)
+      expect(reviews[0].content).toBe('A classic mind-bender.')
+      expect(reviews[0].rating).toBe(9)
+      expect(reviews[0].spoiler).toBe(true)
+
+      const userReview = media.getMediaReview(CID, null, null, OWN)
+      expect(userReview).not.toBeNull()
+      expect(userReview.content).toBe('A classic mind-bender.')
+      expect(userReview.rating).toBe(9)
+      expect(userReview.spoiler).toBe(true)
+    })
+
+    it('folds legacy Kind 5401 reviews into ratings state', async () => {
+      const { media } = setupStores()
+      stubs.queryEvents.mockResolvedValueOnce([
+        {
+          id: 'legacy-rev-1',
+          pubkey: OWN,
+          created_at: 900,
+          kind: 5401,
+          tags: [
+            ['d', CID],
+            ['contentid', CID],
+            ['trackstr', 'web'],
+            ['type', 'movie'],
+            ['name', 'Fight Club'],
+            ['year', '1999'],
+            ['rating', '8.5'],
+          ],
+          content: 'Legacy review text.',
+        },
+      ])
+      await media.syncUserData(OWN)
+
+      const reviews = media.getReviewsForMedia(CID)
+      expect(reviews).toHaveLength(1)
+      expect(reviews[0].content).toBe('Legacy review text.')
+      expect(reviews[0].rating).toBe(8.5)
+    })
+  })
+
+  describe('Similar Suggestions (Kind 35401)', () => {
+    const movie = { contentId: CID, type: 'movie', name: 'Fight Club', year: '1999' }
+    const TARGET_CID = 'b'.repeat(64)
+    const TARGET_MEDIA = {
+      contentId: TARGET_CID,
+      type: 'movie',
+      title: 'The Matrix',
+      year: 1999,
+    }
+
+    it('publishes a Kind 35401 event and stores suggestion', async () => {
+      const { media } = setupStores()
+      await media.addSimilarSuggestion(movie, TARGET_MEDIA, 'Mind-bending cyberpunk thriller')
+
+      expect(stubs.publish).toHaveBeenCalledTimes(1)
+      const publishedEvt = stubs.publish.mock.calls[0][0]
+      expect(publishedEvt.kind).toBe(35401)
+      expect(publishedEvt.tags).toContainEqual(['d', CID])
+      expect(publishedEvt.tags).toContainEqual(['contentid', CID])
+      expect(publishedEvt.tags).toContainEqual([
+        'similar',
+        TARGET_CID,
+        'movie',
+        'The Matrix',
+        '1999',
+      ])
+
+      const suggestions = media.getSimilarSuggestionsForMedia(CID)
+      expect(suggestions).toHaveLength(1)
+      expect(suggestions[0].contentId).toBe(TARGET_CID)
+      expect(suggestions[0].name).toBe('The Matrix')
+      expect(suggestions[0].voteCount).toBe(1)
+      expect(suggestions[0].notes).toContain('Mind-bending cyberpunk thriller')
+    })
+
+    it('aggregates suggestions from multiple users and ranks by voteCount', async () => {
+      const { media } = setupStores()
+      const THIRD_CID = 'c'.repeat(64)
+
+      stubs.queryEvents.mockResolvedValueOnce([
+        {
+          id: 'sug-user1',
+          pubkey: OWN,
+          created_at: 1000,
+          kind: 35401,
+          tags: [
+            ['d', CID],
+            ['contentid', CID],
+            ['trackstr', 'web'],
+            ['type', 'movie'],
+            ['name', 'Fight Club'],
+            ['year', '1999'],
+            ['similar', TARGET_CID, 'movie', 'The Matrix', '1999'],
+            ['s', TARGET_CID],
+          ],
+          content: 'Dark and psychological.',
+        },
+        {
+          id: 'sug-user2',
+          pubkey: STRANGER,
+          created_at: 1005,
+          kind: 35401,
+          tags: [
+            ['d', CID],
+            ['contentid', CID],
+            ['trackstr', 'web'],
+            ['type', 'movie'],
+            ['name', 'Fight Club'],
+            ['year', '1999'],
+            ['similar', TARGET_CID, 'movie', 'The Matrix', '1999'],
+            ['s', TARGET_CID],
+            ['similar', THIRD_CID, 'movie', 'Memento', '2000'],
+            ['s', THIRD_CID],
+          ],
+          content: 'Must watch.',
+        },
+      ])
+
+      await media.fetchMediaDetails(CID)
+
+      const suggestions = media.getSimilarSuggestionsForMedia(CID)
+      expect(suggestions).toHaveLength(2)
+      // The Matrix has 2 votes, Memento has 1 vote
+      expect(suggestions[0].contentId).toBe(TARGET_CID)
+      expect(suggestions[0].voteCount).toBe(2)
+      expect(suggestions[1].contentId).toBe(THIRD_CID)
+      expect(suggestions[1].voteCount).toBe(1)
+    })
+  })
 })
+

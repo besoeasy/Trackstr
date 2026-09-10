@@ -24,7 +24,7 @@ describe('TrickleQueue Service', () => {
     trickleQueue.isRunning = false
   })
 
-  it('enqueues status, rating, and review actions from consolidated items', async () => {
+  it('enqueues status and unified rating/review actions from consolidated items', async () => {
     const items = [
       {
         contentId: '11'.repeat(32),
@@ -39,12 +39,12 @@ describe('TrickleQueue Service', () => {
     ]
 
     const res = await trickleQueue.enqueueItems(items)
-    // Should produce 3 actions: status, rating, review
-    expect(res.enqueuedCount).toBe(3)
+    // Should produce 2 actions: status (35402), unified rating & review (35400)
+    expect(res.enqueuedCount).toBe(2)
 
     const stats = await getQueueStats()
-    expect(stats.total).toBe(3)
-    expect(stats.pending).toBe(3)
+    expect(stats.total).toBe(2)
+    expect(stats.pending).toBe(2)
   })
 
   it('processes an item and marks it as synced', async () => {
@@ -153,10 +153,10 @@ describe('TrickleQueue Service', () => {
 
     // Passing reactive proxy array directly to enqueueItems must not throw
     const res = await trickleQueue.enqueueItems(reactiveItemsRef.value)
-    expect(res.enqueuedCount).toBe(3)
+    expect(res.enqueuedCount).toBe(2)
 
     const stats = await getQueueStats()
-    expect(stats.total).toBe(3)
+    expect(stats.total).toBe(2)
   })
 })
 

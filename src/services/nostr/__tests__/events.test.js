@@ -6,7 +6,7 @@ import {
   buildRatingEvent,
   buildStatusEvent,
   buildReviewEvent,
-  buildActivityLogEvent,
+  buildSimilarSuggestionEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
 
@@ -28,10 +28,10 @@ describe('event envelope rules', () => {
   })
 
   it('rejects missing/invalid media references', () => {
-    expect(() => buildRatingEvent({ type: 'movie', name: 'X' }, 8)).toThrow()
-    expect(() => buildRatingEvent({ contentId: 'nope', type: 'movie', name: 'X' }, 8)).toThrow()
-    expect(() => buildRatingEvent({ contentId: CID, type: 'podcast', name: 'X' }, 8)).toThrow()
-    expect(() => buildRatingEvent({ contentId: CID, type: 'movie' }, 8)).toThrow()
+    expect(() => buildStatusEvent(null, 'watching')).toThrow()
+    expect(() => buildStatusEvent({ contentId: 'not-hex' }, 'watching')).toThrow()
+    expect(() => buildStatusEvent({ contentId: CID, type: 'book', name: 'Dune' }, 'watching')).toThrow()
+    expect(() => buildStatusEvent({ contentId: CID, type: 'movie' }, 'watching')).toThrow()
   })
 })
 
@@ -49,7 +49,7 @@ describe('buildRatingEvent()', () => {
   })
 })
 
-describe('buildStatusEvent() / buildActivityLogEvent()', () => {
+describe('buildStatusEvent()', () => {
   it('enforces the video status enum on movies/shows', () => {
     expect(buildStatusEvent(MOVIE, 'watching').tags).toContainEqual(['status', 'watching'])
     expect(() => buildStatusEvent(MOVIE, 'listening')).toThrow()
@@ -61,9 +61,29 @@ describe('buildStatusEvent() / buildActivityLogEvent()', () => {
     expect(() => buildStatusEvent(TRACK, 'watching')).toThrow()
   })
 
-  it('restricts immutable logs to watching/completed/listening', () => {
-    expect(buildActivityLogEvent(MOVIE, 'completed').kind).toBe(KINDS.ACTIVITY_LOG)
-    expect(() => buildActivityLogEvent(MOVIE, 'plan-to-watch')).toThrow()
+})
+
+describe('buildSimilarSuggestionEvent()', () => {
+  const MATRIX_CID = 'ba'.repeat(32)
+  const MATRIX = { contentId: MATRIX_CID, type: 'movie', name: 'The Matrix', year: '1999' }
+
+  it('builds a Kind 35401 event with target d-tag and similar tags', () => {
+    const evt = buildSimilarSuggestionEvent(MOVIE, MATRIX, { note: 'Great mind bender' })
+    expect(evt.kind).toBe(KINDS.SIMILAR_SUGGESTION)
+    expect(evt.tags).toContainEqual(['d', CID])
+    expect(evt.tags).toContainEqual(['contentid', CID])
+    expect(evt.tags).toContainEqual(['similar', MATRIX_CID, 'movie', 'The Matrix', '1999'])
+    expect(evt.tags).toContainEqual(['s', MATRIX_CID])
+    expect(evt.content).toBe('Great mind bender')
+  })
+
+  it('accepts multiple similar items and validates references', () => {
+    const SHOW_CID = 'cc'.repeat(32)
+    const SHOW = { contentId: SHOW_CID, type: 'show', name: 'Mr. Robot', year: '2015' }
+    const evt = buildSimilarSuggestionEvent(MOVIE, [MATRIX, SHOW])
+    expect(evt.tags).toContainEqual(['similar', MATRIX_CID, 'movie', 'The Matrix', '1999'])
+    expect(evt.tags).toContainEqual(['similar', SHOW_CID, 'show', 'Mr. Robot', '2015'])
+    expect(() => buildSimilarSuggestionEvent(MOVIE, [])).toThrow()
   })
 })
 
@@ -107,19 +127,29 @@ describe('music + qualifier tags', () => {
 })
 
 describe('buildReviewEvent()', () => {
-  it('allows optional body and validates an optional rating', () => {
+  it('unifies review into Kind 35400 and validates rating / spoiler', () => {
     const evt = buildReviewEvent(MOVIE, 'Still holds up.', { rating: 9, spoiler: true })
-    expect(evt.kind).toBe(KINDS.REVIEW)
+    expect(evt.kind).toBe(KINDS.RATING)
     expect(evt.content).toBe('Still holds up.')
     expect(evt.tags).toContainEqual(['rating', '9'])
     expect(evt.tags).toContainEqual(['spoiler', '1'])
+    expect(evt.tags).toContainEqual(['d', CID])
 
-    // Review body is not compulsory: empty or whitespace body produces empty content
-    const emptyEvt = buildReviewEvent(MOVIE, '   ')
+    // Rating without review text
+    const ratingOnlyEvt = buildRatingEvent(MOVIE, 8)
+    expect(ratingOnlyEvt.kind).toBe(KINDS.RATING)
+    expect(ratingOnlyEvt.content).toBe('')
+    expect(ratingOnlyEvt.tags).toContainEqual(['rating', '8'])
+
+    // Review text without rating
+    const textOnlyEvt = buildReviewEvent(MOVIE, 'Great commentary.')
+    expect(textOnlyEvt.kind).toBe(KINDS.RATING)
+    expect(textOnlyEvt.content).toBe('Great commentary.')
+
+    // Empty review / rating is allowed
+    const emptyEvt = buildReviewEvent(MOVIE, '')
+    expect(emptyEvt.kind).toBe(KINDS.RATING)
     expect(emptyEvt.content).toBe('')
-
-    const omittedEvt = buildReviewEvent(MOVIE)
-    expect(omittedEvt.content).toBe('')
 
     expect(() => buildReviewEvent(MOVIE, 'ok', { rating: 42 })).toThrow()
   })

@@ -6,10 +6,10 @@ import {
   buildRatingEvent,
   buildStatusEvent,
   buildReviewEvent,
-  buildActivityLogEvent,
+  buildSimilarSuggestionEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
-import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle, assertContentId } from '@/utils/contentId.js'
 import { useAuthStore } from './auth.js'
 
 const LOCAL_STORAGE_KEY = 'trackstr_media_cache'
@@ -19,15 +19,32 @@ export const useMediaStore = defineStore('media', () => {
 
   // State
   const statuses = ref({}) // key: dTag -> { status, progress, eventId, createdAt, media }
-  const ratings = ref({}) // key: dTag -> { rating, eventId, createdAt, media }
-  const reviews = ref([]) // Array of kind 5401 events
-  const activityLogs = ref([]) // Array of kind 5402 events
+  const ratings = ref({}) // key: dTag -> { rating, content, spoiler, eventId, createdAt, media }
+  const suggestions = ref({}) // key: authorKey -> { dTag, contentId, items, note, eventId, createdAt, pubkey, media }
   const mediaLibrary = ref({}) // key: contentId -> base media object
   const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
   // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
   // Nostr-only surfaces must filter by this set. key: contentId -> 1
   const nostrContentIds = ref({})
+
+  // Reviews are unified into Kind 35400 ratings carrying written commentary in `content`
+  const reviews = computed(() => {
+    return Object.values(ratings.value)
+      .filter((r) => r && (r.isReview || (typeof r.content === 'string' && r.content.trim().length > 0)))
+      .map((r) => ({
+        id: r.eventId || r.id,
+        eventId: r.eventId || r.id,
+        contentId: r.contentId,
+        content: r.content,
+        rating: r.rating,
+        spoiler: !!r.spoiler,
+        createdAt: r.createdAt,
+        pubkey: r.pubkey,
+        media: r.media,
+      }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  })
 
   const isSyncing = ref(false)
   const lastSyncedAt = ref(0)
@@ -42,12 +59,38 @@ export const useMediaStore = defineStore('media', () => {
         const data = JSON.parse(raw)
         statuses.value = data.statuses || {}
         ratings.value = data.ratings || {}
-        reviews.value = data.reviews || []
-        activityLogs.value = data.activityLogs || []
+        suggestions.value = data.suggestions || {}
         mediaLibrary.value = data.mediaLibrary || {}
         follows.value = data.follows || {}
         lastSyncedAt.value = data.lastSyncedAt || 0
         nostrContentIds.value = data.nostrContentIds || {}
+
+        // Migrate any legacy separate reviews (kind 5401) from localStorage into ratings
+        if (Array.isArray(data.reviews)) {
+          data.reviews.forEach((r) => {
+            if (r?.contentId && r?.pubkey) {
+              const dTag = r.dTag || r.contentId
+              const authorKey = `${r.pubkey}:${dTag}`
+              if (!ratings.value[authorKey]) {
+                ratings.value[authorKey] = {
+                  dTag,
+                  contentId: r.contentId,
+                  rating: r.rating ?? null,
+                  content: r.content || '',
+                  spoiler: !!r.spoiler,
+                  eventId: r.id || r.eventId,
+                  createdAt: r.createdAt,
+                  pubkey: r.pubkey,
+                  media: r.media,
+                }
+              } else if (!ratings.value[authorKey].content && r.content) {
+                ratings.value[authorKey].content = r.content
+                ratings.value[authorKey].spoiler = !!r.spoiler
+              }
+            }
+          })
+        }
+
         // Heal provenance for caches written before provenance tracking:
         // anything referenced by persisted event-derived state is Nostr-sourced.
         Object.values(statuses.value).forEach((s) => {
@@ -56,11 +99,13 @@ export const useMediaStore = defineStore('media', () => {
         Object.values(ratings.value).forEach((r) => {
           if (r?.contentId) nostrContentIds.value[r.contentId] = 1
         })
-        reviews.value.forEach((r) => {
-          if (r?.contentId) nostrContentIds.value[r.contentId] = 1
-        })
-        activityLogs.value.forEach((a) => {
-          if (a?.contentId) nostrContentIds.value[a.contentId] = 1
+        Object.values(suggestions.value).forEach((sg) => {
+          if (sg?.contentId) nostrContentIds.value[sg.contentId] = 1
+          if (Array.isArray(sg?.items)) {
+            sg.items.forEach((it) => {
+              if (it?.contentId) nostrContentIds.value[it.contentId] = 1
+            })
+          }
         })
         // Heal any episode types in mediaLibrary cache
         Object.keys(mediaLibrary.value).forEach((cid) => {
@@ -80,8 +125,7 @@ export const useMediaStore = defineStore('media', () => {
       const data = {
         statuses: statuses.value,
         ratings: ratings.value,
-        reviews: reviews.value.slice(0, 500),
-        activityLogs: activityLogs.value.slice(0, 500),
+        suggestions: suggestions.value,
         mediaLibrary: mediaLibrary.value,
         follows: follows.value,
         lastSyncedAt: lastSyncedAt.value,
@@ -147,7 +191,7 @@ export const useMediaStore = defineStore('media', () => {
   /**
    * Ingests a raw Nostr event into our state
    */
-  function ingestEvent(evt) {
+  function ingestEvent(evt, options = {}) {
     if (!evt || !Array.isArray(evt.tags)) return
     // Inbound NIP-09 deletion notices are applied, never stored.
     if (evt.kind === KINDS.DELETION) {
@@ -197,6 +241,7 @@ export const useMediaStore = defineStore('media', () => {
     } else if (evt.kind === KINDS.RATING) {
       const ratingTag = evt.tags.find((t) => t[0] === 'rating')?.[1]
       const ratingNum = ratingTag !== undefined && ratingTag !== null && ratingTag !== '' ? Number(ratingTag) : null
+      const spoilerTag = evt.tags.find((t) => t[0] === 'spoiler')?.[1]
       const current = ratings.value[authorKey]
 
       // Mutable state: newer wins; equal timestamps tie-break on event id.
@@ -205,47 +250,79 @@ export const useMediaStore = defineStore('media', () => {
           dTag,
           contentId: media.contentId,
           rating: Number.isFinite(ratingNum) ? ratingNum : null,
+          content: evt.content || '',
+          spoiler: spoilerTag === '1',
           eventId: evt.id,
+          id: evt.id,
+          isReview: options?.isReview || !!(evt.content && evt.content.trim()) || !!current?.isReview,
           createdAt: evt.created_at,
           pubkey: evt.pubkey,
           media,
         }
       }
-    } else if (evt.kind === KINDS.REVIEW) {
-      // Immutable log: append if not already present
-      if (!reviews.value.some((r) => r.id === evt.id)) {
-        const ratingTag = evt.tags.find((t) => t[0] === 'rating')?.[1]
-        const spoilerTag = evt.tags.find((t) => t[0] === 'spoiler')?.[1]
-
-        reviews.value.unshift({
-          id: evt.id,
-          eventId: evt.id,
+    } else if (evt.kind === 5401) {
+      // Legacy Kind 5401 review support: fold into ratings
+      const ratingTag = evt.tags.find((t) => t[0] === 'rating')?.[1]
+      const spoilerTag = evt.tags.find((t) => t[0] === 'spoiler')?.[1]
+      const current = ratings.value[authorKey]
+      if (!current || evt.created_at > current.createdAt) {
+        ratings.value[authorKey] = {
+          dTag,
           contentId: media.contentId,
-          content: evt.content,
-          rating: ratingTag !== undefined && ratingTag !== null && ratingTag !== '' && Number.isFinite(Number(ratingTag)) ? Number(ratingTag) : null,
+          rating: ratingTag !== undefined && ratingTag !== null && ratingTag !== '' && Number.isFinite(Number(ratingTag)) ? Number(ratingTag) : (current?.rating ?? null),
+          content: evt.content || '',
           spoiler: spoilerTag === '1',
-          createdAt: evt.created_at,
-          pubkey: evt.pubkey,
-          media,
-        })
-      }
-    } else if (evt.kind === KINDS.ACTIVITY_LOG) {
-      // Immutable scrobble: append if not already present
-      if (!activityLogs.value.some((a) => a.id === evt.id)) {
-        const statusTag = evt.tags.find((t) => t[0] === 'status')?.[1]
-        const progressTag = evt.tags.find((t) => t[0] === 'progress')?.[1]
-
-        activityLogs.value.unshift({
-          id: evt.id,
           eventId: evt.id,
-          contentId: media.contentId,
-          status: statusTag,
-          progress: progressTag || '',
-          content: evt.content,
+          id: evt.id,
           createdAt: evt.created_at,
           pubkey: evt.pubkey,
           media,
-        })
+        }
+      }
+    } else if (evt.kind === KINDS.SIMILAR_SUGGESTION) {
+      const current = suggestions.value[authorKey]
+      const similarItems = []
+
+      for (const tag of evt.tags) {
+        if (!Array.isArray(tag)) continue
+        if (tag[0] === 'similar' && tag[1]) {
+          const simCid = tag[1]
+          const simType = tag[2] || 'movie'
+          const simName = tag[3] || ''
+          const simYear = tag[4] || ''
+          similarItems.push({
+            contentId: simCid,
+            type: simType,
+            name: simName,
+            title: simName,
+            year: simYear,
+          })
+          nostrContentIds.value[simCid] = 1
+          if (!mediaLibrary.value[simCid] && simName) {
+            mediaLibrary.value[simCid] = {
+              contentId: simCid,
+              type: simType,
+              name: simName,
+              title: simName,
+              year: simYear,
+            }
+          }
+        }
+      }
+
+      // Mutable state (NIP-33): newer wins; equal timestamps tie-break on event id.
+      if (!current || evt.created_at > current.createdAt || (evt.created_at === current.createdAt && (evt.id || '') < (current.eventId || ''))) {
+        suggestions.value[authorKey] = {
+          dTag,
+          contentId: media.contentId,
+          items: similarItems,
+          note: evt.content || '',
+          eventId: evt.id,
+          id: evt.id,
+          createdAt: evt.created_at,
+          pubkey: evt.pubkey,
+          media,
+        }
       }
     }
   }
@@ -276,20 +353,10 @@ export const useMediaStore = defineStore('media', () => {
       if (!Array.isArray(tag)) continue
       if (tag[0] === 'e' && typeof tag[1] === 'string') {
         const targetId = tag[1]
-        const review = reviews.value.find((r) => r.id === targetId)
-        if (review && String(review.pubkey || '').toLowerCase() === deleter) {
-          reviews.value = reviews.value.filter((r) => r.id !== targetId)
-          pruneProvenance(review.contentId)
-        }
-        const log = activityLogs.value.find((a) => a.id === targetId)
-        if (log && String(log.pubkey || '').toLowerCase() === deleter) {
-          activityLogs.value = activityLogs.value.filter((a) => a.id !== targetId)
-          pruneProvenance(log.contentId)
-        }
         // Replaceable events deleted by id (non-standard but tolerated).
-        for (const map of [statuses.value, ratings.value]) {
+        for (const map of [statuses.value, ratings.value, suggestions.value]) {
           for (const [key, entry] of Object.entries(map)) {
-            if (entry?.eventId === targetId && String(entry.pubkey || '').toLowerCase() === deleter) {
+            if ((entry?.eventId === targetId || entry?.id === targetId) && String(entry.pubkey || '').toLowerCase() === deleter) {
               delete map[key]
               pruneProvenance((entry.contentId || '').split(':')[0])
             }
@@ -308,6 +375,8 @@ export const useMediaStore = defineStore('media', () => {
           delete ratings.value[`${targetPubkey}:${dTag}`]
         } else if (kind === KINDS.STATUS) {
           delete statuses.value[`${targetPubkey}:${dTag}`]
+        } else if (kind === KINDS.SIMILAR_SUGGESTION) {
+          delete suggestions.value[`${targetPubkey}:${dTag}`]
         }
         pruneProvenance(base)
       }
@@ -360,7 +429,7 @@ export const useMediaStore = defineStore('media', () => {
     try {
       const filter = {
         authors: [userPubkey],
-        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.DELETION],
+        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.SIMILAR_SUGGESTION, KINDS.DELETION],
         limit: 500,
       }
 
@@ -399,7 +468,7 @@ export const useMediaStore = defineStore('media', () => {
       // Match both the NIP-33 d-tag (#d) and the base contentid tag
       // (#contentid): episode mutables carry suffixed d-tags, so a bare-#d
       // query alone would miss all episode activity for a show.
-      const kinds = [KINDS.REVIEW, KINDS.ACTIVITY_LOG, KINDS.STATUS, KINDS.RATING]
+      const kinds = [KINDS.STATUS, KINDS.RATING, KINDS.SIMILAR_SUGGESTION]
       const events = await nostrClient.queryEvents([
         { '#d': [contentId], kinds, limit: 50 },
         { '#contentid': [contentId], kinds, limit: 50 },
@@ -422,10 +491,10 @@ export const useMediaStore = defineStore('media', () => {
     try {
       // Query activity and deletion notices separately so a burst of
       // NIP-09 deletions never consumes the shared limit and crowds out
-      // the actual reviews/check-ins the feed is meant to render.
+      // the actual ratings/suggestions the feed is meant to render.
       const [events, deletions] = await Promise.all([
         nostrClient.queryEvents({
-          kinds: [KINDS.REVIEW, KINDS.ACTIVITY_LOG],
+          kinds: [KINDS.RATING, KINDS.STATUS, KINDS.SIMILAR_SUGGESTION],
           limit,
         }),
         nostrClient.queryEvents({
@@ -455,7 +524,7 @@ export const useMediaStore = defineStore('media', () => {
     try {
       // Query media events and deletion notices separately so a burst of
       // NIP-09 deletions never consumes the shared limit and crowds out
-      // the status/rating/review/scrobble events that rank popularity.
+      // the status/rating/review/suggestion events that rank popularity.
       const [events, deletions] = await Promise.all([
         nostrClient.queryEvents(
           [
@@ -463,9 +532,7 @@ export const useMediaStore = defineStore('media', () => {
               kinds: [
                 KINDS.STATUS,
                 KINDS.RATING,
-                KINDS.REVIEW,
-                KINDS.ACTIVITY_LOG,
-                KINDS.MEDIA_METADATA,
+                KINDS.SIMILAR_SUGGESTION,
               ],
               limit: 80,
             },
@@ -517,7 +584,7 @@ export const useMediaStore = defineStore('media', () => {
       Object.values(statuses.value).forEach((s) => foldLocal(s.eventId, s.contentId, s.createdAt))
       Object.values(ratings.value).forEach((r) => foldLocal(r.eventId, r.contentId, r.createdAt))
       reviews.value.forEach((r) => foldLocal(r.eventId || r.id, r.contentId, r.createdAt))
-      activityLogs.value.forEach((a) => foldLocal(a.eventId || a.id, a.contentId, a.createdAt))
+      Object.values(suggestions.value).forEach((sg) => foldLocal(sg.eventId || sg.id, sg.contentId, sg.createdAt))
 
       // Get all known media items from state
       const allKnown = getKnownMediaFromEvents(type)
@@ -564,40 +631,73 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Sets media watch/listening status (Kind 35402) and creates an immutable check-in log (Kind 5402)
+   * Sets media watch/listening status (Kind 35402)
    */
   async function setStatus(media, status, progress = '', note = '') {
     if (!authStore.isAuthenticated) {
       throw new Error('Please connect your Nostr extension to track media.')
     }
 
-    // 1. Build Kind 35402 (Mutable State)
+    // Build Kind 35402 (Mutable State)
     const statusTemplate = buildStatusEvent(media, status, progress, note)
     const signedStatus = await nostrClient.signEvent(statusTemplate)
     await publishOrThrow(signedStatus)
     ingestEvent(signedStatus)
-
-    // 2. Build Kind 5402 (Immutable Check-in Log) if it's an active status
-    if (['watching', 'completed', 'listening'].includes(status)) {
-      const logTemplate = buildActivityLogEvent(media, status, progress, note)
-      const signedLog = await nostrClient.signEvent(logTemplate)
-      await publishOrThrow(signedLog)
-      ingestEvent(signedLog)
-    }
 
     saveToLocalStorage()
     return signedStatus
   }
 
   /**
-   * Sets media rating (Kind 35400)
+   * Adds or updates a similar item suggestion (Kind 35401, NIP-33 Parameterized Replaceable)
    */
-  async function setRating(media, rating, note = '') {
+  async function addSimilarSuggestion(sourceMedia, similarMedia, note = '') {
+    if (!authStore.isAuthenticated) {
+      throw new Error('Please connect your Nostr extension to suggest similar titles.')
+    }
+    const dTag = assertContentId(sourceMedia?.contentId)
+    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const existing = suggestions.value[authorKey]
+
+    // Combine with existing items if author already suggested items for this title
+    const existingItems = Array.isArray(existing?.items) ? [...existing.items] : []
+    const newItems = Array.isArray(similarMedia) ? similarMedia : (similarMedia ? [similarMedia] : [])
+
+    const combinedMap = new Map()
+    existingItems.forEach((it) => {
+      if (it?.contentId) combinedMap.set(it.contentId, it)
+    })
+    newItems.forEach((it) => {
+      if (it?.contentId) combinedMap.set(it.contentId, it)
+    })
+    const allItems = Array.from(combinedMap.values())
+
+    const suggestionTemplate = buildSimilarSuggestionEvent(sourceMedia, allItems, { note })
+    const signed = await nostrClient.signEvent(suggestionTemplate)
+    await publishOrThrow(signed)
+    ingestEvent(signed)
+
+    saveToLocalStorage()
+    return signed
+  }
+
+  /**
+   * Sets media rating and optional review note (Kind 35400)
+   */
+  async function setRating(media, rating, note = '', options = {}) {
     if (!authStore.isAuthenticated) {
       throw new Error('Please connect your Nostr extension to rate.')
     }
 
-    const ratingTemplate = buildRatingEvent(media, rating, note)
+    const dTag = buildDTag({ contentId: media.contentId, season: media.season, episode: media.episode })
+    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const existing = ratings.value[authorKey]
+
+    // If note is not passed, preserve existing review text
+    const reviewContent = note !== undefined && note !== '' ? note : (existing?.content || '')
+    const spoiler = options.spoiler !== undefined ? options.spoiler : (existing?.spoiler || false)
+
+    const ratingTemplate = buildRatingEvent(media, rating, reviewContent, { spoiler })
     const signedRating = await nostrClient.signEvent(ratingTemplate)
     await publishOrThrow(signedRating)
     ingestEvent(signedRating)
@@ -607,17 +707,27 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
-   * Adds a written review (Kind 5401)
+   * Adds or updates a written review and rating (Kind 35400)
    */
   async function addReview(media, body, options = {}) {
     if (!authStore.isAuthenticated) {
       throw new Error('Please connect your Nostr extension to review.')
     }
 
-    const reviewTemplate = buildReviewEvent(media, body, options)
+    const dTag = buildDTag({ contentId: media.contentId, season: media.season, episode: media.episode })
+    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const existing = ratings.value[authorKey]
+
+    const rating = options.rating !== undefined && options.rating !== null && options.rating !== ''
+      ? options.rating
+      : (existing?.rating ?? null)
+
+    const spoiler = options.spoiler !== undefined ? options.spoiler : (existing?.spoiler || false)
+
+    const reviewTemplate = buildRatingEvent(media, rating, body, { spoiler })
     const signedReview = await nostrClient.signEvent(reviewTemplate)
     await publishOrThrow(signedReview)
-    ingestEvent(signedReview)
+    ingestEvent(signedReview, { isReview: true })
 
     saveToLocalStorage()
     return signedReview
@@ -653,16 +763,20 @@ export const useMediaStore = defineStore('media', () => {
         delete ratings.value[`${ownPubkey}:${dTag}`]
       } else if (kind === KINDS.STATUS) {
         delete statuses.value[`${ownPubkey}:${dTag}`]
+      } else if (kind === KINDS.SIMILAR_SUGGESTION) {
+        delete suggestions.value[`${ownPubkey}:${dTag}`]
       }
       pruneProvenance(base)
     }
     if (eventId) {
-      const removedReview = reviews.value.find((r) => r.id === eventId)
-      const removedLog = activityLogs.value.find((a) => a.id === eventId)
-      reviews.value = reviews.value.filter((r) => r.id !== eventId)
-      activityLogs.value = activityLogs.value.filter((a) => a.id !== eventId)
-      if (removedReview?.contentId) pruneProvenance(removedReview.contentId)
-      if (removedLog?.contentId) pruneProvenance(removedLog.contentId)
+      for (const map of [statuses.value, ratings.value, suggestions.value]) {
+        for (const [key, entry] of Object.entries(map)) {
+          if (entry?.eventId === eventId || entry?.id === eventId) {
+            delete map[key]
+            pruneProvenance((entry.contentId || '').split(':')[0])
+          }
+        }
+      }
     }
 
     saveToLocalStorage()
@@ -678,8 +792,8 @@ export const useMediaStore = defineStore('media', () => {
     const stillReferenced =
       Object.values(statuses.value).some((s) => (s.contentId || '').split(':')[0] === baseContentId) ||
       Object.values(ratings.value).some((r) => (r.contentId || '').split(':')[0] === baseContentId) ||
-      reviews.value.some((r) => r.contentId === baseContentId) ||
-      activityLogs.value.some((a) => a.contentId === baseContentId)
+      reviews.value.some((r) => (r.contentId || '').split(':')[0] === baseContentId) ||
+      Object.values(suggestions.value).some((sg) => (sg.contentId || '').split(':')[0] === baseContentId || (sg.items || []).some(it => (it.contentId || '').split(':')[0] === baseContentId))
     if (!stillReferenced) {
       delete nostrContentIds.value[baseContentId]
     }
@@ -700,22 +814,87 @@ export const useMediaStore = defineStore('media', () => {
     return ratings.value[mediaStateKey(contentId, season, episode, pubkey)]?.rating ?? null
   }
 
+  function getMediaReview(contentId, season, episode, pubkey) {
+    const r = ratings.value[mediaStateKey(contentId, season, episode, pubkey)]
+    if (!r) return null
+    return {
+      rating: r.rating,
+      content: r.content || '',
+      spoiler: !!r.spoiler,
+      eventId: r.eventId,
+      createdAt: r.createdAt,
+    }
+  }
+
   function getMediaMetadata(_contentId) {
     return null
   }
 
   function getReviewsForMedia(contentId) {
-    return reviews.value.filter((r) => r.contentId === contentId)
+    if (!contentId) return []
+    const base = String(contentId).split(':')[0].toLowerCase()
+    return reviews.value.filter((r) => String(r?.contentId || '').split(':')[0].toLowerCase() === base)
   }
 
-  function getActivityForMedia(contentId) {
-    return activityLogs.value.filter((a) => a.contentId === contentId)
+  function getSimilarSuggestionsForMedia(contentId) {
+    if (!contentId) return []
+    const base = String(contentId).split(':')[0].toLowerCase()
+
+    // Aggregate all suggestions matching this source media
+    const aggregated = new Map()
+
+    Object.values(suggestions.value).forEach((entry) => {
+      if (!entry || !Array.isArray(entry.items)) return
+      const entryBase = String(entry.contentId || entry.dTag || '').split(':')[0].toLowerCase()
+      if (entryBase !== base) return
+
+      entry.items.forEach((item) => {
+        if (!item?.contentId) return
+        const targetCid = item.contentId
+        if (targetCid.toLowerCase() === base) return // Don't suggest self
+
+        const existing = aggregated.get(targetCid) || {
+          contentId: targetCid,
+          type: item.type || 'movie',
+          name: item.name || item.title || '',
+          title: item.name || item.title || '',
+          year: item.year || '',
+          voteCount: 0,
+          recommenders: [],
+          notes: [],
+          latestCreatedAt: 0,
+        }
+
+        if (!existing.recommenders.includes(entry.pubkey)) {
+          existing.recommenders.push(entry.pubkey)
+          existing.voteCount += 1
+        }
+
+        if (entry.note && !existing.notes.includes(entry.note)) {
+          existing.notes.push(entry.note)
+        }
+
+        if ((entry.createdAt || 0) > existing.latestCreatedAt) {
+          existing.latestCreatedAt = entry.createdAt || 0
+        }
+
+        aggregated.set(targetCid, existing)
+      })
+    })
+
+    return Array.from(aggregated.values()).sort((a, b) => {
+      if (b.voteCount !== a.voteCount) return b.voteCount - a.voteCount
+      return (b.latestCreatedAt || 0) - (a.latestCreatedAt || 0)
+    })
+  }
+
+  function getActivityForMedia(_contentId) {
+    return []
   }
 
   /**
-   * Community average score for a media item, computed from Nostr signals:
-   * - Mutable current scores (Kind 35400, one per author/d-tag, latest wins)
-   * - Immutable review scores (Kind 5401 `rating` tags, permanent history)
+   * Community average score for a media item, computed from Kind 35400 Nostr signals:
+   * Mutable current scores (one per author/d-tag, latest wins).
    * Episode-anchored records fold into their parent show via base contentId.
    * Math per AGENTS.md: sum(ratings) / count(ratings) on the 1–10 scale.
    * @param {string} contentId
@@ -737,14 +916,7 @@ export const useMediaStore = defineStore('media', () => {
         scores.push(n)
         ratingsCount += 1
       }
-    }
-
-    for (const rev of reviews.value) {
-      const revBase = String(rev?.contentId || '').split(':')[0].toLowerCase()
-      if (revBase !== base) continue
-      const n = Number(rev?.rating)
-      if (Number.isFinite(n) && n >= 1 && n <= 10) {
-        scores.push(n)
+      if (entry?.content && typeof entry.content === 'string' && entry.content.trim()) {
         reviewsCount += 1
       }
     }
@@ -843,7 +1015,7 @@ export const useMediaStore = defineStore('media', () => {
     Object.values(statuses.value).forEach(checkItem)
     Object.values(ratings.value).forEach(checkItem)
     reviews.value.forEach(checkItem)
-    activityLogs.value.forEach(checkItem)
+    Object.values(suggestions.value).forEach(checkItem)
 
     // Also check localStorage for any user-added custom episodes for this show
     try {
@@ -910,7 +1082,7 @@ export const useMediaStore = defineStore('media', () => {
       }
     })
 
-    // 3. From reviews (kind 5401)
+    // 3. From reviews (kind 35400)
     reviews.value.forEach((r) => {
       if (r.media && r.contentId) {
         if (typeMatches(r.media.type)) {
@@ -920,13 +1092,19 @@ export const useMediaStore = defineStore('media', () => {
       }
     })
 
-    // 4. From activity logs (kind 5402)
-    activityLogs.value.forEach((a) => {
-      if (a.media && a.contentId) {
-        if (typeMatches(a.media.type)) {
-          const existing = items.get(a.contentId) || {}
-          items.set(a.contentId, { ...existing, ...a.media, contentId: a.contentId })
-        }
+    // 4. From similar suggestions (kind 35401)
+    Object.values(suggestions.value).forEach((sg) => {
+      if (sg.media && sg.contentId && typeMatches(sg.media.type)) {
+        const existing = items.get(sg.contentId) || {}
+        items.set(sg.contentId, { ...existing, ...sg.media, contentId: sg.contentId })
+      }
+      if (Array.isArray(sg.items)) {
+        sg.items.forEach((it) => {
+          if (it && it.contentId && typeMatches(it.type)) {
+            const existing = items.get(it.contentId) || {}
+            items.set(it.contentId, { ...existing, ...it, contentId: it.contentId })
+          }
+        })
       }
     })
 
@@ -1003,31 +1181,20 @@ export const useMediaStore = defineStore('media', () => {
         }
       }
 
-      if (item.rating !== null && item.rating !== undefined) {
+      const hasRating = item.rating !== null && item.rating !== undefined
+      const hasReview = item.review && item.review.trim()
+
+      if (hasRating || hasReview) {
         ratings.value[authorKey] = {
           dTag: contentId,
           contentId,
-          rating: item.rating,
+          rating: hasRating ? item.rating : null,
+          content: hasReview ? item.review.trim() : '',
+          spoiler: !!item.spoiler,
           eventId: `import_rating_${contentId}`,
           createdAt,
           pubkey: author,
           media: mediaRef,
-        }
-      }
-
-      if (item.review && item.review.trim()) {
-        const revId = `import_rev_${contentId}`
-        if (!reviews.value.some((r) => r.id === revId || (r.contentId === contentId && r.pubkey === author))) {
-          reviews.value.unshift({
-            id: revId,
-            contentId,
-            content: item.review.trim(),
-            rating: item.rating,
-            spoiler: !!item.spoiler,
-            createdAt,
-            pubkey: author,
-            media: mediaRef,
-          })
         }
       }
     }
@@ -1138,7 +1305,8 @@ export const useMediaStore = defineStore('media', () => {
     statuses,
     ratings,
     reviews,
-    activityLogs,
+    suggestions,
+    activityLogs: computed(() => []),
     mediaLibrary,
     follows,
     isSyncing,
@@ -1150,11 +1318,14 @@ export const useMediaStore = defineStore('media', () => {
     setStatus,
     setRating,
     addReview,
+    addSimilarSuggestion,
     deleteTrackstrEvent,
     getMediaStatus,
     getMediaRating,
+    getMediaReview,
     getMediaMetadata,
     getReviewsForMedia,
+    getSimilarSuggestionsForMedia,
     getActivityForMedia,
     getAverageRatingForMedia,
     getDiscoveredEpisodesForMedia,

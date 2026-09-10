@@ -10,9 +10,8 @@ export const KINDS = {
   CONTACTS: 3,
   DELETION: 5,
   RATING: 35400,
+  SIMILAR_SUGGESTION: 35401,
   STATUS: 35402,
-  REVIEW: 5401,
-  ACTIVITY_LOG: 5402,
 }
 
 export const APP_ID = 'web'
@@ -20,7 +19,6 @@ export const APP_ID = 'web'
 export const MEDIA_TYPES = ['movie', 'show', 'episode', 'music']
 export const VIDEO_STATUSES = ['plan-to-watch', 'watching', 'completed', 'on-hold', 'dropped']
 export const MUSIC_STATUSES = ['plan-to-listen', 'listening', 'completed']
-export const LOG_STATUSES = ['watching', 'completed', 'listening']
 
 function assertMediaRef(media) {
   assertContentId(media?.contentId)
@@ -41,59 +39,64 @@ function assertRating(rating) {
 }
 
 /**
- * Builds base media tags common to all Trackstr events
+ * Builds standard base tags common to all Trackstr media events:
+ * trackstr, contentid, type, name, [year], [season, episode], [artist], [qualifier]
  * @param {Object} media
- * @param {string} media.contentId
- * @param {'movie'|'show'|'music'|'episode'} media.type
- * @param {string} media.name
- * @param {string|number} media.year
- * @param {string|number} [media.season]
- * @param {string|number} [media.episode]
- * @returns {Array<[string, string]>}
+ * @returns {Array<Array<string>>}
  */
 export function buildBaseMediaTags(media) {
   assertMediaRef(media)
   const tags = [
     ['trackstr', APP_ID],
-    ['contentid', media.contentId.toLowerCase()],
+    ['contentid', media.contentId],
     ['type', media.type],
-    ['name', media.name || media.title || ''],
-    ['year', String(media.year || '')],
+    ['name', media.name || media.title],
   ]
 
-  // Music identity hashes the artist, so readers must be able to recompute it.
+  if (media.year) {
+    tags.push(['year', String(media.year)])
+  }
+
+  // Episode records MUST carry both season and episode position tags so
+  // clients can aggregate show activity under a single contentid query.
+  if (media.type === 'episode') {
+    if (media.season === undefined || media.season === null || media.season === '') {
+      throw new Error('Episode records must specify a season number (0 for specials).')
+    }
+    if (media.episode === undefined || media.episode === null || media.episode === '') {
+      throw new Error('Episode records must specify an episode number.')
+    }
+    tags.push(['season', String(media.season)])
+    tags.push(['episode', String(media.episode)])
+  }
+
+  // Music records emit the artist tag so readers can independently
+  // recompute the music contentid (music|<artist>|<title>|<year>).
   if (media.type === 'music' && media.artist) {
     tags.push(['artist', String(media.artist)])
   }
-  // Collision-split qualifier must travel with the event so others hash identically.
+
+  // When a qualifier was used to split a collision, tag it so the
+  // hash is reproducible by other clients.
   if (media.qualifier) {
     tags.push(['qualifier', String(media.qualifier)])
-  }
-
-  // season + episode travel only on episode-anchored records.
-  if (media.type === 'episode') {
-    if (media.season === undefined || media.season === null || media.season === '') {
-      throw new Error('Episode records require a season number.')
-    }
-    if (media.episode === undefined || media.episode === null || media.episode === '') {
-      throw new Error('Episode records require an episode number.')
-    }
-    tags.push(['season', String(Number(media.season))])
-    tags.push(['episode', String(Number(media.episode))])
   }
 
   return tags
 }
 
 /**
- * Builds a Mutable Rating Event (kind: 35400)
+ * Builds a Mutable Rating & Review Event (kind: 35400)
+ * NIP-33 Parameterized Replaceable Event
  * @param {Object} media
- * @param {number|string} rating 1 to 10 scale
- * @param {string} [content] Optional note/json
+ * @param {number|string|null} [rating] 1 to 10 scale (optional if content/review is present)
+ * @param {string} [content] Optional review body / commentary / note
+ * @param {Object} [options]
+ * @param {boolean} [options.spoiler] Whether contains spoilers
  * @returns {Object} Unsigned event template
  */
-export function buildRatingEvent(media, rating, content = '') {
-  assertRating(rating)
+export function buildRatingEvent(media, rating = null, content = '', options = {}) {
+  assertMediaRef(media)
   const dTag = buildDTag({
     contentId: media.contentId,
     season: media.season,
@@ -103,15 +106,39 @@ export function buildRatingEvent(media, rating, content = '') {
   const tags = [
     ['d', dTag],
     ...buildBaseMediaTags(media),
-    ['rating', String(rating)],
   ]
+
+  const hasRating = rating !== undefined && rating !== null && rating !== ''
+  const trimmedContent = content ? String(content).trim() : ''
+
+  if (hasRating) {
+    const num = assertRating(rating)
+    tags.push(['rating', String(num)])
+  }
+
+  if (options.spoiler) {
+    tags.push(['spoiler', '1'])
+  }
 
   return {
     kind: KINDS.RATING,
     created_at: Math.floor(Date.now() / 1000),
     tags,
-    content: content || '',
+    content: trimmedContent,
   }
+}
+
+/**
+ * Builds a Written Review Event (unified into Kind 35400)
+ * @param {Object} media
+ * @param {string} [body] Review text
+ * @param {Object} [options]
+ * @param {number|string} [options.rating] Optional rating
+ * @param {boolean} [options.spoiler] Whether contains spoilers
+ * @returns {Object} Unsigned event template
+ */
+export function buildReviewEvent(media, body = '', options = {}) {
+  return buildRatingEvent(media, options.rating ?? null, body, options)
 }
 
 /**
@@ -151,74 +178,54 @@ export function buildStatusEvent(media, status, progress = '', content = '') {
   }
 }
 
-
 /**
- * Builds an Immutable Review Event (kind: 5401)
- * Permanent historical diary entry - NO expiration tag
- * @param {Object} media
- * @param {string} body Review text
+ * Builds a Mutable Similar Suggestion Event (kind: 35401, NIP-33)
+ * Lets users recommend similar movies, shows, or music for any media item.
+ * @param {Object} sourceMedia The media item being compared against
+ * @param {Array<Object>|Object} similarItems One or more similar media objects
  * @param {Object} [options]
- * @param {number|string} [options.rating] Optional rating at time of review
- * @param {boolean} [options.spoiler] Whether contains spoilers
+ * @param {string} [options.content] Commentary or rationale for the suggestion
+ * @param {string} [options.note] Alias for options.content
  * @returns {Object} Unsigned event template
  */
-export function buildReviewEvent(media, body = '', options = {}) {
-  const content = body ? String(body).trim() : ''
+export function buildSimilarSuggestionEvent(sourceMedia, similarItems, options = {}) {
+  assertMediaRef(sourceMedia)
+  const dTag = assertContentId(sourceMedia?.contentId)
+
   const tags = [
-    ['d', assertContentId(media?.contentId)], // Relay-indexed lookup tag (#d)
-    ...buildBaseMediaTags(media),
+    ['d', dTag],
+    ...buildBaseMediaTags(sourceMedia),
   ]
 
-  if (options.rating !== undefined && options.rating !== null && options.rating !== '') {
-    tags.push(['rating', String(assertRating(options.rating))])
+  const items = Array.isArray(similarItems) ? similarItems : (similarItems ? [similarItems] : [])
+  if (!items.length) {
+    throw new Error('At least one similar media item is required.')
   }
-  if (options.spoiler) {
-    tags.push(['spoiler', '1'])
-  }
+
+  items.forEach((item) => {
+    if (!item) return
+    const cid = assertContentId(item.contentId)
+    const type = item.type || 'movie'
+    const name = item.name || item.title || ''
+    const year = item.year ? String(item.year) : ''
+    // Standard similar suggestion tag
+    tags.push(['similar', cid, type, name, year])
+    // Single-letter lookup tag for Nostr relay filtering
+    tags.push(['s', cid])
+  })
 
   return {
-    kind: KINDS.REVIEW,
+    kind: KINDS.SIMILAR_SUGGESTION,
     created_at: Math.floor(Date.now() / 1000),
     tags,
-    content,
-  }
-}
-
-/**
- * Builds an Immutable Activity Log / Scrobble / Check-in Event (kind: 5402)
- * Permanent historical diary entry - NO expiration tag
- * @param {Object} media
- * @param {string} status 'watching'|'completed'|'listening'
- * @param {string} [progress] Optional progress
- * @param {string} [content] Optional note
- * @returns {Object} Unsigned event template
- */
-export function buildActivityLogEvent(media, status, progress = '', content = '') {
-  if (!LOG_STATUSES.includes(status)) {
-    throw new Error(`Invalid log status "${status}" — allowed: ${LOG_STATUSES.join(', ')}.`)
-  }
-  const tags = [
-    ['d', assertContentId(media?.contentId)], // Relay-indexed lookup tag (#d)
-    ...buildBaseMediaTags(media),
-    ['status', status],
-  ]
-
-  if (progress) {
-    tags.push(['progress', String(progress)])
-  }
-
-  return {
-    kind: KINDS.ACTIVITY_LOG,
-    created_at: Math.floor(Date.now() / 1000),
-    tags,
-    content: content || '',
+    content: options.content || options.note || '',
   }
 }
 
 /**
  * Builds a standard NIP-09 Deletion Event (kind: 5)
  * @param {Object} target
- * @param {string} [target.eventId] For regular events (5401, 5402)
+ * @param {string} [target.eventId] For events deleted by id
  * @param {string} [target.coordinate] For parameterized replaceable events: "<kind>:<pubkey>:<d-tag>"
  * @param {string} [target.reason]
  * @returns {Object} Unsigned event template

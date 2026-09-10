@@ -87,7 +87,7 @@ class TrickleQueue {
 
   /**
    * Enqueues consolidated media items into IndexedDB
-   * Creates discrete actions: status (35402), rating (35400), review (5401)
+   * Creates discrete actions: status (35402), rating & review (35400)
    * @param {Array<Object>} items Consolidated media items
    * @returns {Promise<{ enqueuedCount: number }>}
    */
@@ -134,33 +134,19 @@ class TrickleQueue {
         })
       }
 
-      // 2. Rating action (Kind 35400)
-      if (item.rating !== null && item.rating !== undefined && item.rating > 0) {
+      // 2. Rating & Review action (Kind 35400)
+      const hasRating = item.rating !== null && item.rating !== undefined && item.rating > 0
+      const hasReview = item.review && item.review.trim()
+
+      if (hasRating || hasReview) {
         queueEntries.push({
           id: `rating:${item.contentId}`,
           contentId: item.contentId,
           actionType: 'rating',
           media: mediaRef,
           payload: {
-            rating: item.rating,
-          },
-          syncStatus: 'pending',
-          attempts: 0,
-          error: null,
-          createdAt: now,
-        })
-      }
-
-      // 3. Written Review action (Kind 5401)
-      if (item.review && item.review.trim()) {
-        queueEntries.push({
-          id: `review:${item.contentId}`,
-          contentId: item.contentId,
-          actionType: 'review',
-          media: mediaRef,
-          payload: {
-            review: item.review.trim(),
-            rating: item.rating,
+            rating: hasRating ? item.rating : null,
+            review: hasReview ? item.review.trim() : '',
             spoiler: item.spoiler || false,
             watchedDate: item.watchedDate,
           },
@@ -298,7 +284,12 @@ class TrickleQueue {
       if (entry.actionType === 'status') {
         eventTemplate = buildStatusEvent(entry.media, entry.payload.status)
       } else if (entry.actionType === 'rating') {
-        eventTemplate = buildRatingEvent(entry.media, entry.payload.rating)
+        eventTemplate = buildRatingEvent(
+          entry.media,
+          entry.payload.rating,
+          entry.payload.review || '',
+          { spoiler: entry.payload.spoiler }
+        )
       } else if (entry.actionType === 'review') {
         eventTemplate = buildReviewEvent(entry.media, entry.payload.review, {
           rating: entry.payload.rating,
