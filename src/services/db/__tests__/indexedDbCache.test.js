@@ -7,7 +7,6 @@ import {
   saveAppMeta,
   getAppMeta,
   pruneExpiredCache,
-  migrateLocalStorageToIndexedDb,
   clearMediaAndEventCache,
   CACHE_EXPIRY_MS,
   CACHE_EXPIRY_DAYS,
@@ -169,45 +168,6 @@ describe('IndexedDB Media & Event Cache (30-day expiry)', () => {
       expect(remainingMedia['valid_cid']).toBeDefined()
       expect(remainingEvents['expired_event']).toBeUndefined()
       expect(remainingEvents['valid_event']).toBeDefined()
-    })
-  })
-
-  describe('migrateLocalStorageToIndexedDb()', () => {
-    it('migrates legacy localStorage cache into IndexedDB and deletes the localStorage key', async () => {
-      const legacyPayload = {
-        mediaLibrary: {
-          'cid_migrated': { contentId: 'cid_migrated', title: 'Matrix', name: 'Matrix', year: 1999, type: 'movie' },
-        },
-        statuses: {
-          'status_migrated': { contentId: 'cid_migrated', status: 'completed' },
-        },
-        ratings: {
-          'rating_migrated': { contentId: 'cid_migrated', rating: 10 },
-        },
-        follows: { 'pubkey_xyz': 1 },
-        lastSyncedAt: 1699999999,
-        nostrContentIds: { 'cid_migrated': 1 },
-      }
-
-      localStorage.setItem('trackstr_media_cache', JSON.stringify(legacyPayload))
-
-      const result = await migrateLocalStorageToIndexedDb()
-      expect(result.migrated).toBe(true)
-
-      // Verified migrated data in IndexedDB
-      const media = await loadMediaCache()
-      expect(media['cid_migrated']).toBeDefined()
-      expect(media['cid_migrated'].title).toBe('Matrix')
-
-      const statuses = await loadEventCache('status')
-      expect(statuses['status_migrated']).toBeDefined()
-      expect(statuses['status_migrated'].status).toBe('completed')
-
-      const sync = await getAppMeta('lastSyncedAt')
-      expect(sync).toBe(1699999999)
-
-      // Verified localStorage is wiped to preserve 5MB limit
-      expect(localStorage.getItem('trackstr_media_cache')).toBeNull()
     })
   })
 })

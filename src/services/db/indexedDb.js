@@ -665,62 +665,6 @@ export async function pruneExpiredCache(now = Date.now()) {
   })
 }
 
-/**
- * Automatically migrates legacy localStorage payload ('trackstr_media_cache')
- * into IndexedDB with a 30-day expiry stamp, then purges the localStorage key.
- * @returns {Promise<{ migrated: boolean, error?: string }>}
- */
-export async function migrateLocalStorageToIndexedDb() {
-  const storage = typeof window !== 'undefined' && window.localStorage
-    ? window.localStorage
-    : typeof globalThis.localStorage !== 'undefined'
-      ? globalThis.localStorage
-      : null
-
-  if (!storage) return { migrated: false, reason: 'no-storage' }
-
-  const raw = storage.getItem('trackstr_media_cache')
-  if (!raw) return { migrated: false, reason: 'no-legacy-data' }
-
-  try {
-    const data = JSON.parse(raw)
-
-    if (data.mediaLibrary && typeof data.mediaLibrary === 'object') {
-      await saveMediaCache(data.mediaLibrary)
-    }
-
-    if (data.statuses && typeof data.statuses === 'object') {
-      await saveEventCache('status', data.statuses)
-    }
-
-    if (data.ratings && typeof data.ratings === 'object') {
-      await saveEventCache('rating', data.ratings)
-    }
-
-    if (data.suggestions && typeof data.suggestions === 'object') {
-      await saveEventCache('suggestion', data.suggestions)
-    }
-
-    if (data.follows) {
-      await saveAppMeta('follows', data.follows)
-    }
-
-    if (data.lastSyncedAt) {
-      await saveAppMeta('lastSyncedAt', data.lastSyncedAt)
-    }
-
-    if (data.nostrContentIds) {
-      await saveAppMeta('nostrContentIds', data.nostrContentIds)
-    }
-
-    // Free the 5MB localStorage space
-    storage.removeItem('trackstr_media_cache')
-    return { migrated: true }
-  } catch (err) {
-    console.warn('Failed to migrate localStorage to IndexedDB:', err)
-    return { migrated: false, error: err.message }
-  }
-}
 
 /**
  * Clears media_cache, event_cache, and app_meta

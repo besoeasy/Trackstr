@@ -17,7 +17,6 @@ import {
   saveAppMeta,
   getAppMeta,
   pruneExpiredCache,
-  migrateLocalStorageToIndexedDb,
   clearMediaAndEventCache,
 } from '@/services/db/indexedDb.js'
 import { useAuthStore } from './auth.js'
@@ -100,10 +99,7 @@ export const useMediaStore = defineStore('media', () => {
 
   async function initCache() {
     try {
-      // 1. Automatically migrate legacy localStorage payload if it exists
-      await migrateLocalStorageToIndexedDb()
-
-      // 2. Load non-expired media and event cache from IndexedDB (30-day TTL)
+      // 1. Load non-expired media and event cache from IndexedDB (30-day TTL)
       const [cachedMedia, cachedStatuses, cachedRatings, cachedSuggestions, savedFollows, savedLastSynced, savedNostrCids] = await Promise.all([
         loadMediaCache(),
         loadEventCache('status'),
@@ -124,10 +120,10 @@ export const useMediaStore = defineStore('media', () => {
       }
       nostrContentIds.value = { ...(savedNostrCids || {}), ...nostrContentIds.value }
 
-      // 3. Cleanse any invalid or corrupt memory entries
+      // 2. Cleanse any invalid or corrupt memory entries
       cleanseMemoryCache()
 
-      // 4. Background purge of expired records (>30 days) from IndexedDB
+      // 3. Background purge of expired records (>30 days) from IndexedDB
       pruneExpiredCache().catch((err) => console.warn('Cache pruning warning:', err))
 
       isCacheLoaded.value = true
@@ -161,11 +157,6 @@ export const useMediaStore = defineStore('media', () => {
       console.warn('Failed to save media cache to IndexedDB:', err)
     }
   }
-
-  // Backwards-compatible aliases so existing code and tests work seamlessly
-  const saveToLocalStorage = saveToIndexedDb
-  saveToLocalStorage.flush = flushSaveToIndexedDb
-  const loadFromLocalStorage = initCache
 
   async function clearCache() {
     statuses.value = {}
@@ -392,7 +383,7 @@ export const useMediaStore = defineStore('media', () => {
         pruneProvenance(base)
       }
     }
-    saveToLocalStorage()
+    saveToIndexedDb()
   }
 
   /**
@@ -421,7 +412,7 @@ export const useMediaStore = defineStore('media', () => {
           next[t[1].toLowerCase()] = 1
         })
       follows.value = next
-      saveToLocalStorage()
+      saveToIndexedDb()
       return next
     } catch (err) {
       console.warn('Failed to fetch follow list:', err)
@@ -461,7 +452,7 @@ export const useMediaStore = defineStore('media', () => {
       try {
         await fetchFollows(userPubkey)
       } catch {}
-      saveToLocalStorage()
+      saveToIndexedDb()
     } catch (err) {
       console.error('Failed to sync user data from relays:', err)
     } finally {
@@ -489,7 +480,7 @@ export const useMediaStore = defineStore('media', () => {
       ])
 
       ingestBatch(events)
-      saveToLocalStorage()
+      saveToIndexedDb()
     } catch (err) {
       console.warn('Failed to fetch media details from relays:', err)
     }
@@ -515,7 +506,7 @@ export const useMediaStore = defineStore('media', () => {
       ])
 
       ingestBatch([...events, ...deletions])
-      saveToLocalStorage()
+      saveToIndexedDb()
       // Deletion notices are applied, never rendered as feed items.
       return events.filter((evt) => evt && evt.kind !== KINDS.DELETION)
     } catch (err) {
@@ -559,7 +550,7 @@ export const useMediaStore = defineStore('media', () => {
       ])
 
       ingestBatch([...events, ...deletions])
-      saveToLocalStorage()
+      saveToIndexedDb()
 
       // Aggregate mentions: every relay event counts exactly once, grouped
       // by base contentId (episode suffixes fold into their show). Local
@@ -655,7 +646,7 @@ export const useMediaStore = defineStore('media', () => {
     await publishOrThrow(signedStatus)
     ingestEvent(signedStatus)
 
-    saveToLocalStorage()
+    saveToIndexedDb()
     return signedStatus
   }
 
@@ -688,7 +679,7 @@ export const useMediaStore = defineStore('media', () => {
     await publishOrThrow(signed)
     ingestEvent(signed)
 
-    saveToLocalStorage()
+    saveToIndexedDb()
     return signed
   }
 
@@ -713,7 +704,7 @@ export const useMediaStore = defineStore('media', () => {
     await publishOrThrow(signedRating)
     ingestEvent(signedRating)
 
-    saveToLocalStorage()
+    saveToIndexedDb()
     return signedRating
   }
 
@@ -740,7 +731,7 @@ export const useMediaStore = defineStore('media', () => {
     await publishOrThrow(signedReview)
     ingestEvent(signedReview, { isReview: true })
 
-    saveToLocalStorage()
+    saveToIndexedDb()
     return signedReview
   }
 
@@ -778,7 +769,7 @@ export const useMediaStore = defineStore('media', () => {
     }
     pruneProvenance(base)
 
-    saveToLocalStorage()
+    saveToIndexedDb()
     return signed
   }
 
@@ -1049,7 +1040,7 @@ export const useMediaStore = defineStore('media', () => {
         ...mediaLibrary.value[item.contentId],
         ...clean,
       }
-      saveToLocalStorage()
+      saveToIndexedDb()
     }
   }
 
@@ -1213,7 +1204,7 @@ export const useMediaStore = defineStore('media', () => {
       }
     }
 
-    saveToLocalStorage()
+    saveToIndexedDb()
   }
 
   const trackedItemsList = computed(() => {
@@ -1351,7 +1342,8 @@ export const useMediaStore = defineStore('media', () => {
     isCacheLoaded,
     cacheInitPromise,
     initCache,
-    saveToLocalStorage,
+    saveToIndexedDb,
+    flushSaveToIndexedDb,
     clearCache,
   }
 })
