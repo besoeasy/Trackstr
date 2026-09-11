@@ -411,7 +411,7 @@ export async function searchMusic(query) {
   const mergedMap = new Map()
 
   for (const item of allResults) {
-    if (!item.title || !item.artist) continue
+    if (!item.title || !item.artist || !item.year) continue
 
     const artistKey = cleanKey(item.artist)
     const titleKey = cleanKey(item.title)
@@ -493,7 +493,14 @@ export async function searchMusic(query) {
     return score
   }
 
-  return Array.from(mergedMap.values()).sort((a, b) => {
+  return Array.from(mergedMap.values())
+    .filter((item) => {
+      const title = (item.title || item.name || '').trim()
+      const artist = (item.artist || '').trim()
+      const year = String(item.year || '').trim()
+      return Boolean(title && artist && year)
+    })
+    .sort((a, b) => {
     const relDiff = calculateRelevance(b) - calculateRelevance(a)
     if (relDiff !== 0) return relDiff
     return (b.popularity || 0) - (a.popularity || 0)

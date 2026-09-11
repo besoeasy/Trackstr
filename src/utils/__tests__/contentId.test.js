@@ -68,9 +68,11 @@ describe('buildCanonicalString()', () => {
     ).toBe('movie|dune|1984|lynch')
   })
 
-  it('throws when title or music artist is missing', () => {
+  it('throws when title, year, or music artist is missing', () => {
     expect(() => buildCanonicalString({ type: 'movie', title: '', year: '1999' })).toThrow()
+    expect(() => buildCanonicalString({ type: 'movie', title: 'Fight Club', year: '' })).toThrow()
     expect(() => buildCanonicalString({ type: 'music', title: 'X', year: '2000', artist: '' })).toThrow()
+    expect(() => buildCanonicalString({ type: 'music', title: 'X', year: '', artist: 'Artist' })).toThrow()
   })
 })
 

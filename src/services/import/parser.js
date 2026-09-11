@@ -164,7 +164,8 @@ export function detectLetterboxdFileType(headers, filename = '') {
 }
 
 /**
- * Parses a single Letterboxd or generic CSV file into intermediate records
+ * Parses a Trackstr standard CSV file into intermediate records.
+ * Strictly requires Title, Year, and Type columns per Trackstr's Nostr-based schema.
  * @param {string} csvText
  * @param {string} [filename]
  * @returns {Array<Object>}
@@ -175,29 +176,51 @@ export function parseCsvFile(csvText, filename = '') {
 
   const rawHeaders = rows[0]
   const headers = rawHeaders.map((h) => h.toLowerCase().trim())
-  const fileType = detectLetterboxdFileType(rawHeaders, filename)
 
-  const nameIdx = headers.findIndex((h) => ['name', 'title', 'movie', 'film'].includes(h))
-  const yearIdx = headers.findIndex((h) => ['year', 'release year'].includes(h))
-  const dateIdx = headers.findIndex((h) => ['watched date', 'date', 'watched_at', 'logged date'].includes(h))
-  const ratingIdx = headers.findIndex((h) => ['rating', 'score', 'stars'].includes(h))
-  const reviewIdx = headers.findIndex((h) => ['review', 'review text', 'notes'].includes(h))
-  const spoilerIdx = headers.findIndex((h) => ['spoiler', 'is_spoiler'].includes(h))
+  const titleIdx = headers.indexOf('title')
+  const yearIdx = headers.indexOf('year')
+  const typeIdx = headers.indexOf('type')
+  const artistIdx = headers.indexOf('artist')
+  const statusIdx = headers.indexOf('status')
+  const dateIdx = headers.findIndex((h) => ['date', 'watched date', 'watched_date'].includes(h))
+  const ratingIdx = headers.findIndex((h) => ['rating', 'score'].includes(h))
+  const reviewIdx = headers.findIndex((h) => ['review', 'comment', 'notes'].includes(h))
+  const spoilerIdx = headers.indexOf('spoiler')
 
-  if (nameIdx === -1) {
-    return []
+  const missing = []
+  if (titleIdx === -1) missing.push('"Title"')
+  if (yearIdx === -1) missing.push('"Year"')
+  if (typeIdx === -1) missing.push('"Type"')
+
+  if (missing.length > 0) {
+    throw new Error(`CSV is missing mandatory column(s): ${missing.join(', ')}. Trackstr requires Title, Year, and Type for Nostr canonical addressing.`)
   }
 
   const results = []
+  let skippedCount = 0
+  const VALID_TYPES = ['movie', 'show', 'music', 'episode']
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]
-    const name = (row[nameIdx] || '').trim()
-    if (!name) continue
+    const title = (row[titleIdx] || '').trim()
+    const yearRaw = (row[yearIdx] || '').trim()
+    const yearMatch = yearRaw.match(/\b(18\d\d|19\d\d|20\d\d)\b/)
+    const rawType = (row[typeIdx] || '').trim().toLowerCase()
 
-    const yearStr = yearIdx !== -1 ? (row[yearIdx] || '').trim() : ''
-    const yearNum = parseInt(yearStr, 10)
-    const year = Number.isFinite(yearNum) ? yearNum : ''
+    // Title, valid 4-digit Year, and valid Type are strictly mandatory
+    if (!title || !yearMatch || !VALID_TYPES.includes(rawType)) {
+      skippedCount++
+      continue
+    }
+
+    const year = parseInt(yearMatch[1], 10)
+    const mediaType = rawType
+
+    const artist = artistIdx !== -1 ? (row[artistIdx] || '').trim() : ''
+    if (mediaType === 'music' && !artist) {
+      skippedCount++
+      continue
+    }
 
     const rawDate = dateIdx !== -1 ? (row[dateIdx] || '').trim() : ''
     const watchedDate = normalizeDate(rawDate)
@@ -209,25 +232,42 @@ export function parseCsvFile(csvText, filename = '') {
     const rawSpoiler = spoilerIdx !== -1 ? (row[spoilerIdx] || '').trim().toLowerCase() : ''
     const spoiler = rawSpoiler === 'yes' || rawSpoiler === 'true' || rawSpoiler === '1'
 
-    let status = 'completed'
-    if (fileType === 'watchlist') {
-      status = 'plan-to-watch'
+    let status = mediaType === 'music' ? 'completed' : 'completed'
+    if (statusIdx !== -1 && row[statusIdx]) {
+      const rawStatus = row[statusIdx].trim().toLowerCase().replace(/[_\s]+/g, '-')
+      if (['completed', 'watched', 'finished', 'listened'].includes(rawStatus)) {
+        status = 'completed'
+      } else if (['watching', 'currently-watching'].includes(rawStatus)) {
+        status = mediaType === 'music' ? 'listening' : 'watching'
+      } else if (['listening', 'currently-listening'].includes(rawStatus)) {
+        status = 'listening'
+      } else if (['plan-to-watch', 'watchlist', 'want-to-watch', 'planning'].includes(rawStatus)) {
+        status = mediaType === 'music' ? 'plan-to-listen' : 'plan-to-watch'
+      } else if (['plan-to-listen', 'want-to-listen'].includes(rawStatus)) {
+        status = 'plan-to-listen'
+      } else if (['on-hold', 'paused'].includes(rawStatus)) {
+        status = 'on-hold'
+      } else if (['dropped', 'abandoned'].includes(rawStatus)) {
+        status = 'dropped'
+      }
     }
 
     results.push({
-      type: 'movie',
-      name,
-      title: name,
+      type: mediaType,
+      name: title,
+      title,
       year,
+      artist: mediaType === 'music' ? artist : '',
       status,
       rating,
       review,
       spoiler,
       watchedDate,
-      sourceFile: filename || fileType,
+      sourceFile: filename || 'trackstr.csv',
     })
   }
 
+  results.skippedCount = skippedCount
   return results
 }
 
@@ -249,17 +289,28 @@ export function parseTraktJson(jsonData) {
   if (!Array.isArray(data)) return []
 
   const results = []
+  let skippedCount = 0
 
   for (const item of data) {
     const movie = item.movie || (item.type === 'movie' ? item : null)
     const show = item.show || (item.type === 'show' ? item : null)
 
     const target = movie || show
-    if (!target || !target.title) continue
+    if (!target || !target.title) {
+      skippedCount++
+      continue
+    }
 
     const type = movie ? 'movie' : 'show'
     const name = target.title.trim()
-    const year = target.year || ''
+    const yearRaw = String(target.year || '').trim()
+    const yearMatch = yearRaw.match(/\b(18\d\d|19\d\d|20\d\d)\b/)
+    if (!name || !yearMatch) {
+      skippedCount++
+      continue
+    }
+
+    const year = parseInt(yearMatch[1], 10)
     const watchedDate = normalizeDate(item.watched_at || item.last_watched_at || item.created_at || '')
     const rating = item.rating && item.rating >= 1 && item.rating <= 10 ? Number(item.rating) : null
 
@@ -277,14 +328,13 @@ export function parseTraktJson(jsonData) {
     })
   }
 
+  results.skippedCount = skippedCount
   return results
 }
 
 /**
  * Merges multiple parsed file results into a unified list of media items.
- * If a movie appears in both watched.csv and ratings.csv and reviews.csv,
- * its rating, status, and review are merged into a single cohesive item.
- * Also computes canonical contentId for each item.
+ * Deduplicates by canonical key and computes Nostr canonical contentId.
  * @param {Array<Object>} parsedItems
  * @returns {Promise<Array<Object>>}
  */
@@ -292,17 +342,21 @@ export async function consolidateMediaItems(parsedItems) {
   const mergedMap = new Map()
 
   for (const item of parsedItems) {
-    if (!item?.name) continue
+    if (!item?.name || !item?.year) continue
+    if (item.type === 'music' && !item.artist) continue
 
-    // Key by lowercased title and year for deduplication
-    const normKey = `${item.type || 'movie'}|${item.name.toLowerCase().trim()}|${item.year || ''}`
+    const normTitle = item.name.toLowerCase().trim()
+    const normKey = item.type === 'music'
+      ? `music|${(item.artist || '').toLowerCase().trim()}|${normTitle}|${item.year}`
+      : `${item.type || 'movie'}|${normTitle}|${item.year}`
 
     if (!mergedMap.has(normKey)) {
       mergedMap.set(normKey, {
         type: item.type || 'movie',
         name: item.name.trim(),
         title: item.name.trim(),
-        year: item.year || '',
+        year: item.year,
+        artist: item.artist || '',
         status: item.status || 'completed',
         rating: item.rating || null,
         review: item.review || '',
@@ -338,14 +392,14 @@ export async function consolidateMediaItems(parsedItems) {
       const { contentId } = await computeContentId({
         type: item.type,
         title: item.name,
-        year: item.year || '',
+        year: item.year,
+        artist: item.artist,
       })
       finalized.push({
         ...item,
         contentId,
       })
     } catch (err) {
-      // Fallback if computation fails
       console.warn('Failed to compute contentId for item:', item.name, err)
     }
   }

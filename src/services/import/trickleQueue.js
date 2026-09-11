@@ -105,14 +105,16 @@ class TrickleQueue {
     const now = Date.now()
 
     for (const item of plainItems) {
-      if (!item.contentId) continue
+      if (!item.contentId || !item.name || !item.year) continue
+      if (item.type === 'music' && !item.artist) continue
 
       const mediaRef = {
         contentId: item.contentId,
         type: item.type || 'movie',
         name: item.name,
         title: item.name,
-        year: item.year || '',
+        year: String(item.year),
+        artist: item.type === 'music' ? item.artist : undefined,
       }
 
       // 1. Status action (Kind 35402)

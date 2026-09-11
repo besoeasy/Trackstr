@@ -187,6 +187,11 @@ async function handleSave() {
     return
   }
 
+  if (!year.value || !year.value.trim()) {
+    errorMsg.value = 'Release year is required — it is part of the canonical content ID.'
+    return
+  }
+
   if (selectedType.value === 'music' && !artist.value.trim()) {
     errorMsg.value = 'Artist is required for music — it is part of the canonical content ID.'
     return

@@ -98,18 +98,60 @@ describe('author-scoped mutable state', () => {
     }
   })
 
-  it('drops malformed state but keeps genuine relay mentions', async () => {
+  it('drops malformed state and events missing mandatory metadata', async () => {
     const { media } = setupStores()
     stubs.queryEvents.mockResolvedValueOnce([
-      { id: 'm1', pubkey: OWN, created_at: 1, kind: KINDS.STATUS, tags: [['d', CID]], content: '' },
-      { id: 'm2', pubkey: OWN, created_at: 1, kind: KINDS.STATUS, tags: [['d', 'garbage']], content: '' },
-      { id: 'm3', pubkey: OWN, created_at: 1, kind: KINDS.STATUS, tags: null, content: '' },
+      // Valid media tags but missing status tag -> media parsed, but status dropped
+      {
+        id: 'm1',
+        pubkey: OWN,
+        created_at: 1,
+        kind: KINDS.STATUS,
+        tags: [
+          ['d', CID],
+          ['contentid', CID],
+          ['type', 'movie'],
+          ['name', 'Fight Club'],
+          ['year', '1999'],
+        ],
+        content: '',
+      },
+      // Missing year -> completely dropped
+      {
+        id: 'm2',
+        pubkey: OWN,
+        created_at: 1,
+        kind: KINDS.STATUS,
+        tags: [
+          ['d', 'ee'.repeat(32)],
+          ['contentid', 'ee'.repeat(32)],
+          ['type', 'movie'],
+          ['name', 'Incomplete Movie'],
+        ],
+        content: '',
+      },
+      // Missing name -> completely dropped
+      {
+        id: 'm3',
+        pubkey: OWN,
+        created_at: 1,
+        kind: KINDS.STATUS,
+        tags: [
+          ['d', 'ff'.repeat(32)],
+          ['contentid', 'ff'.repeat(32)],
+          ['type', 'movie'],
+          ['year', '2020'],
+        ],
+        content: '',
+      },
+      // Malformed tags
+      { id: 'm4', pubkey: OWN, created_at: 1, kind: KINDS.STATUS, tags: [['d', 'garbage']], content: '' },
+      { id: 'm5', pubkey: OWN, created_at: 1, kind: KINDS.STATUS, tags: null, content: '' },
     ])
     await media.syncUserData(OWN)
-    // No status with an undefined value may exist…
+    // No status with missing status tag exists
     expect(Object.keys(media.statuses)).toHaveLength(0)
-    // …but m1 is still a genuine relay event mentioning CID, so the
-    // mention itself is indexed while its missing state is not.
+    // Only the event with valid mandatory metadata (CID) was indexed
     expect(Object.keys(media.mediaLibrary)).toEqual([CID])
     expect(media.getMediaStatus(CID)).toBeNull()
   })
@@ -394,6 +436,7 @@ describe('getDiscoveredEpisodesForMedia()', () => {
       tags: [
         ['d', `${CID}:s1e1`],
         ['contentid', CID],
+        ['year', '2016'],
         ['season', '1'],
         ['episode', '1'],
         ['name', 'Stranger Things - S01E01: Pilot'],
@@ -411,6 +454,7 @@ describe('getDiscoveredEpisodesForMedia()', () => {
       tags: [
         ['d', `${CID}:s0e1`],
         ['contentid', CID],
+        ['year', '2016'],
         ['season', '0'],
         ['episode', '1'],
         ['name', 'Stranger Things - S00E01: Beyond Stranger Things'],
@@ -436,8 +480,9 @@ describe('getDiscoveredEpisodesForMedia()', () => {
     expect(discovered[1].episode).toBe(1)
     expect(discovered[1].name).toBe('Pilot')
   })
+})
 
-  describe('Unified Ratings and Reviews (Kind 35400)', () => {
+describe('Unified Ratings and Reviews (Kind 35400)', () => {
     it('stores rating and written review together in Kind 35400', async () => {
       const { media } = setupStores()
       stubs.queryEvents.mockResolvedValueOnce([
@@ -475,6 +520,7 @@ describe('getDiscoveredEpisodesForMedia()', () => {
       expect(userReview.content).toBe('A classic mind-bender.')
       expect(userReview.rating).toBe(9)
       expect(userReview.spoiler).toBe(true)
+    })
   })
 
   describe('Similar Suggestions (Kind 35401)', () => {
@@ -566,5 +612,4 @@ describe('getDiscoveredEpisodesForMedia()', () => {
       expect(suggestions[1].voteCount).toBe(1)
     })
   })
-})
 

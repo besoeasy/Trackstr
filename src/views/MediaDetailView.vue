@@ -429,31 +429,56 @@ async function searchSimilarMedia() {
   isSearchingSuggestions.value = true
   suggestionError.value = ''
   try {
-    let results = []
+    let rawItems = []
     if (media.value.type === 'music') {
       const musicRes = await searchMusic(q)
-      results = (musicRes || []).map((item) => ({
-        contentId: item.contentId || computeContentId('music', item.title, item.year, item.artist),
+      rawItems = (musicRes || []).map((item) => ({
         type: 'music',
         name: item.title,
         title: item.title,
         artist: item.artist,
         year: item.year,
         poster: item.poster,
+        contentId: item.contentId,
       }))
     } else {
-      const tmdbRes = await searchTmdb(q, media.value.type === 'show' ? 'tv' : 'multi')
-      results = (tmdbRes || []).map((item) => ({
-        contentId: item.contentId || computeContentId(item.type || 'movie', item.title || item.name, item.year),
+      const tmdbRes = await searchTmdb(q, media.value.type === 'show' ? 'shows' : 'movies')
+      rawItems = (tmdbRes || []).map((item) => ({
         type: item.type || 'movie',
         name: item.title || item.name,
         title: item.title || item.name,
         year: item.year,
         poster: item.poster,
+        contentId: item.contentId,
       }))
     }
-    // Exclude current media
-    suggestionResults.value = results.filter((r) => r.contentId !== contentId.value)
+
+    const processed = []
+    for (const item of rawItems) {
+      const title = (item.title || item.name || '').trim()
+      const year = String(item.year || '').trim()
+      if (!title || !year) continue
+      if (item.type === 'music' && !(item.artist || '').trim()) continue
+
+      let cid = item.contentId
+      if (!cid) {
+        try {
+          const res = await computeContentId({
+            type: item.type,
+            title,
+            year,
+            artist: item.artist || '',
+          })
+          cid = res.contentId
+        } catch {
+          continue
+        }
+      }
+      if (cid && cid !== contentId.value) {
+        processed.push({ ...item, contentId: cid })
+      }
+    }
+    suggestionResults.value = processed
   } catch (err) {
     console.error('Failed to search similar media:', err)
     suggestionError.value = 'Failed to search media.'

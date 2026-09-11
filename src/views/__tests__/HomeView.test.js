@@ -20,10 +20,12 @@ vi.mock('vue-router', async (importOriginal) => {
 
 vi.mock('@/services/api/tmdb.js', () => ({
   searchTmdb: vi.fn().mockResolvedValue([]),
+  getTmdbDetails: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/services/api/music.js', () => ({
   searchMusic: vi.fn().mockResolvedValue([]),
+  getMusicDetails: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/services/api/tv.js', () => ({

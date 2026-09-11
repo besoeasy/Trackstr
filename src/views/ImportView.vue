@@ -23,6 +23,26 @@ const previewItems = ref([])
 const consolidatedList = ref([])
 const importSuccessMessage = ref('')
 const errorMessage = ref('')
+const showFormatGuide = ref(false)
+const totalSkippedCount = ref(0)
+
+const CSV_TEMPLATE = `Title,Year,Type,Artist,Status,Rating,Review,Date,Spoiler
+Fight Club,1999,movie,,completed,8,Timeless masterpiece,1999-10-15,no
+Severance,2022,show,,watching,9.5,Engrossing mystery,2022-03-01,no
+OK Computer,1997,music,Radiohead,completed,10,Iconic album,1997-05-21,no
+Inception,2010,movie,,plan-to-watch,,,,no`
+
+function downloadTemplate() {
+  const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', 'trackstr_template.csv')
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 // Trickle queue live state
 const queueState = ref(trickleQueue.getState())
@@ -85,6 +105,7 @@ async function processFiles(files) {
   isParsing.value = true
   errorMessage.value = ''
   importSuccessMessage.value = ''
+  totalSkippedCount.value = 0
 
   const allParsed = []
   const fileSummaries = []
@@ -100,11 +121,22 @@ async function processFiles(files) {
         parsed = parseCsvFile(text, file.name)
       }
 
+      const skippedInFile = parsed.skippedCount || 0
+      totalSkippedCount.value += skippedInFile
+
       if (parsed.length > 0) {
         allParsed.push(...parsed)
         fileSummaries.push({
           name: file.name,
           count: parsed.length,
+          skipped: skippedInFile,
+          type: file.name.endsWith('.json') ? 'Trakt JSON' : 'CSV',
+        })
+      } else if (skippedInFile > 0) {
+        fileSummaries.push({
+          name: file.name,
+          count: 0,
+          skipped: skippedInFile,
           type: file.name.endsWith('.json') ? 'Trakt JSON' : 'CSV',
         })
       }
@@ -115,7 +147,9 @@ async function processFiles(files) {
   }
 
   if (allParsed.length === 0 && !errorMessage.value) {
-    errorMessage.value = 'No valid media entries found in the uploaded file(s).'
+    errorMessage.value = totalSkippedCount.value > 0
+      ? `No valid media entries found. ${totalSkippedCount.value} item(s) were skipped because they lacked mandatory Title, valid 4-digit release Year, or valid Type.`
+      : 'No valid media entries found in the uploaded file(s).'
     isParsing.value = false
     return
   }
@@ -233,11 +267,12 @@ function navigateToLibrary() {
         <div class="brand-badge-row">
           <span class="import-icon-badge">📥</span>
           <span class="badge badge-primary">Data Portability</span>
+          <span class="badge badge-secondary">Nostr-Native</span>
         </div>
         <h1 class="import-title">Import Media Library</h1>
         <p class="import-subtitle">
-          Import your watched history, ratings, and reviews from Letterboxd or Trakt.
-          Your library loads <strong>instantly in the browser</strong>, and trickles safely to Nostr relays in the background.
+          Import your watched history, ratings, and reviews from Trackstr CSV or Trakt JSON.
+          Because Trackstr is <strong>100% Nostr-based</strong>, every item strictly requires <strong>Title</strong>, <strong>Year</strong> (4-digit), and <strong>Type</strong> (movie, show, music) for canonical addressing.
         </p>
       </header>
 
@@ -257,6 +292,101 @@ function navigateToLibrary() {
         <span>🧩 <strong>Browser Extension active:</strong> For smooth bulk syncing, ensure your extension is configured with "Always Allow" for Trackstr, or use your nsec key to avoid repeated signing popups.</span>
       </div>
 
+      <!-- Trackstr Strict Schema & CSV Format Guide Card -->
+      <div class="format-guide-card card">
+        <div class="format-guide-header">
+          <div class="format-guide-title-wrap">
+            <span class="guide-icon">📐</span>
+            <div>
+              <h2 class="format-guide-title">Trackstr Strict Metadata Rules & CSV Format</h2>
+              <p class="format-guide-desc">
+                Nostr Content IDs are byte-exact SHA-256 hashes generated from <code>&lt;type&gt;|&lt;title&gt;|&lt;year&gt;</code>. <strong>Title</strong>, <strong>Year</strong>, and <strong>Type</strong> are strictly mandatory headers. Rows missing any of these are skipped because they cannot be addressed on Nostr.
+              </p>
+            </div>
+          </div>
+          <div class="format-guide-actions">
+            <button class="btn btn-sm btn-secondary" type="button" @click="downloadTemplate">
+              📥 Download Sample CSV
+            </button>
+            <button class="btn btn-sm btn-outline" type="button" @click="showFormatGuide = !showFormatGuide">
+              {{ showFormatGuide ? 'Hide Specification ▲' : 'View Format Spec ▼' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="showFormatGuide" class="format-details-body">
+          <div class="format-table-wrap">
+            <table class="format-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Requirement</th>
+                  <th>Description & Accepted Values</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Title</code></td>
+                  <td><span class="badge badge-danger">Mandatory</span></td>
+                  <td>Display name of the media (must be named exactly <code>Title</code>).</td>
+                </tr>
+                <tr>
+                  <td><code>Year</code></td>
+                  <td><span class="badge badge-danger">Mandatory</span></td>
+                  <td>4-digit release or first-air year (e.g. <code>1999</code>).</td>
+                </tr>
+                <tr>
+                  <td><code>Type</code></td>
+                  <td><span class="badge badge-danger">Mandatory</span></td>
+                  <td>Media type: <code>movie</code>, <code>show</code>, or <code>music</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>Artist</code></td>
+                  <td><span class="badge badge-warning">Required for Music</span></td>
+                  <td>Artist or creator name (mandatory when <code>Type=music</code>).</td>
+                </tr>
+                <tr>
+                  <td><code>Status</code></td>
+                  <td><span class="badge badge-secondary">Optional</span></td>
+                  <td><code>completed</code> (default), <code>watching</code>, <code>plan-to-watch</code>, <code>on-hold</code>, <code>dropped</code>, <code>listening</code>, <code>plan-to-listen</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>Rating</code></td>
+                  <td><span class="badge badge-secondary">Optional</span></td>
+                  <td>1 to 10 scale (half steps e.g. <code>8.5</code>; Letterboxd 0.5–5.0 stars are auto-scaled ×2).</td>
+                </tr>
+                <tr>
+                  <td><code>Review</code></td>
+                  <td><span class="badge badge-secondary">Optional</span></td>
+                  <td>Written review text or personal notes.</td>
+                </tr>
+                <tr>
+                  <td><code>Date</code></td>
+                  <td><span class="badge badge-secondary">Optional</span></td>
+                  <td>Watched / logged date (<code>YYYY-MM-DD</code>).</td>
+                </tr>
+                <tr>
+                  <td><code>Spoiler</code></td>
+                  <td><span class="badge badge-secondary">Optional</span></td>
+                  <td><code>yes</code> / <code>no</code> (or <code>1</code> / <code>0</code>, <code>true</code> / <code>false</code>).</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="code-example-wrap mt-3">
+            <div class="code-header">
+              <span>Example Trackstr Multi-Media CSV (<code>trackstr_template.csv</code>)</span>
+            </div>
+            <pre class="csv-example-code"><code>Title,Year,Type,Artist,Status,Rating,Review,Date,Spoiler
+Fight Club,1999,movie,,completed,8,Timeless masterpiece,1999-10-15,no
+Severance,2022,show,,watching,9.5,Engrossing mystery,2022-03-01,no
+OK Computer,1997,music,Radiohead,completed,10,Iconic album,1997-05-21,no
+Inception,2010,movie,,plan-to-watch,,,,no</code></pre>
+          </div>
+        </div>
+      </div>
+
       <!-- Dropzone Area -->
       <div
         class="import-dropzone card"
@@ -269,7 +399,7 @@ function navigateToLibrary() {
           <span class="dropzone-icon">📁</span>
           <h2 class="dropzone-title">Drag & drop your export files here</h2>
           <p class="dropzone-hint">
-            Supports Letterboxd CSVs (<code>watched.csv</code>, <code>ratings.csv</code>, <code>reviews.csv</code>, <code>watchlist.csv</code>) and Trakt JSON.
+            Upload Trackstr CSV or Trakt JSON. <code>Title</code>, <code>Year</code>, and <code>Type</code> are strictly required headers.
           </p>
 
           <label class="btn btn-secondary btn-file-pick">
@@ -298,8 +428,13 @@ function navigateToLibrary() {
           :key="file.name"
           class="badge badge-secondary file-badge"
         >
-          📄 {{ file.name }} ({{ file.count }} rows)
+          📄 {{ file.name }} ({{ file.count }} imported<span v-if="file.skipped > 0">, {{ file.skipped }} skipped</span>)
         </div>
+      </div>
+
+      <!-- Skipped Warning Notice -->
+      <div v-if="totalSkippedCount > 0" class="alert alert-warning mt-3">
+        ⚠️ <strong>Notice:</strong> {{ totalSkippedCount }} row(s) were skipped across your file(s) because they lacked mandatory Title, valid 4-digit release Year, or valid Type required by Nostr.
       </div>
 
       <!-- Error / Success Messages -->
@@ -558,6 +693,116 @@ function navigateToLibrary() {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   font-size: 0.95rem;
+}
+
+.format-guide-card {
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+}
+
+.format-guide-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.format-guide-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 280px;
+}
+
+.guide-icon {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.format-guide-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.format-guide-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.format-guide-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.format-details-body {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.format-table-wrap {
+  overflow-x: auto;
+}
+
+.format-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.format-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-card-hover);
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.format-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  vertical-align: middle;
+}
+
+.format-table tr:last-child td {
+  border-bottom: none;
+}
+
+.code-example-wrap {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.code-header {
+  padding: 6px 12px;
+  background: var(--bg-card-hover);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.csv-example-code {
+  padding: 12px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-main);
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .import-dropzone {

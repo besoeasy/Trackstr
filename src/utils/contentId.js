@@ -66,6 +66,9 @@ export function buildCanonicalString({ type, title, year, artist = '', qualifier
   if (!normTitle) {
     throw new Error('Title is required to compute a content ID.')
   }
+  if (!normYear) {
+    throw new Error('Year is required to compute a content ID.')
+  }
 
   if (normType === 'music') {
     const normArtist = norm(artist)

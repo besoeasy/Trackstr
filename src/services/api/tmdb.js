@@ -43,19 +43,23 @@ async function searchTVMaze(query) {
     if (!res.ok) return []
     const data = await res.json()
 
-    return data.slice(0, 10).map((item) => {
-      const s = item.show
-      return {
-        type: 'show',
-        id: `tvmaze-${s.id}`,
-        title: s.name,
-        year: s.premiered ? s.premiered.slice(0, 4) : '',
-        overview: s.summary ? s.summary.replace(/<[^>]+>/g, '').trim() : '',
-        poster: s.image?.original || s.image?.medium || '',
-        banner: s.image?.original || '',
-        genres: s.genres || [],
-      }
-    })
+    return data
+      .filter((item) => item.show && item.show.name && item.show.premiered)
+      .slice(0, 10)
+      .map((item) => {
+        const s = item.show
+        const year = s.premiered ? s.premiered.slice(0, 4) : ''
+        return {
+          type: 'show',
+          id: `tvmaze-${s.id}`,
+          title: s.name,
+          year,
+          overview: s.summary ? s.summary.replace(/<[^>]+>/g, '').trim() : '',
+          poster: s.image?.original || s.image?.medium || '',
+          banner: s.image?.original || '',
+          genres: s.genres || [],
+        }
+      })
   } catch (err) {
     console.warn('TVMaze search failed:', err)
     return []
@@ -87,8 +91,12 @@ async function searchWikipediaMovies(query) {
         })
         if (sumRes.ok) {
           const sum = await sumRes.json()
-          const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/)
+          const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/) || (p.description || p.title || '').match(/\b(19\d\d|20\d\d)\b/)
           const cleanTitle = sum.title.replace(/\s*\([^)]*film[^)]*\)/i, '').trim()
+          const year = yearMatch ? yearMatch[1] : ''
+
+          // Title and release year are mandatory for canonical content ID computation
+          if (!cleanTitle || !year) continue
 
           // Prefer higher resolution image if available
           const poster = sum.originalimage?.source || sum.thumbnail?.source || ''
@@ -97,7 +105,7 @@ async function searchWikipediaMovies(query) {
             type: 'movie',
             id: `wiki-${p.id}`,
             title: cleanTitle,
-            year: yearMatch ? yearMatch[1] : '',
+            year,
             overview: sum.extract || '',
             poster,
             banner: sum.originalimage?.source || '',
@@ -143,10 +151,14 @@ async function searchWikipediaShows(query) {
         })
         if (sumRes.ok) {
           const sum = await sumRes.json()
-          const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/)
+          const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/) || (p.description || p.title || '').match(/\b(19\d\d|20\d\d)\b/)
           const cleanTitle = sum.title
             .replace(/\s*\([^)]*(series|television|show|anime)[^)]*\)/i, '')
             .trim()
+          const year = yearMatch ? yearMatch[1] : ''
+
+          // Title and release year are mandatory for canonical content ID computation
+          if (!cleanTitle || !year) continue
 
           const poster = sum.originalimage?.source || sum.thumbnail?.source || ''
 
@@ -154,7 +166,7 @@ async function searchWikipediaShows(query) {
             type: 'show',
             id: `wiki-${p.id}`,
             title: cleanTitle,
-            year: yearMatch ? yearMatch[1] : '',
+            year,
             overview: sum.extract || '',
             poster,
             banner: sum.originalimage?.source || '',
@@ -324,7 +336,12 @@ export async function searchTmdb(query, filter = 'all') {
 
   const combined = Array.from(mergedMap.values())
 
-  return combined
+  // Strictly require both non-empty title and non-empty year for all media items
+  return combined.filter((item) => {
+    const title = (item.title || item.name || '').trim()
+    const year = String(item.year || '').trim()
+    return Boolean(title && year)
+  })
 }
 
 /**

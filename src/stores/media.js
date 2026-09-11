@@ -65,11 +65,37 @@ export const useMediaStore = defineStore('media', () => {
         lastSyncedAt.value = data.lastSyncedAt || 0
         nostrContentIds.value = data.nostrContentIds || {}
 
-        // Heal any episode types in mediaLibrary cache
+        // Prune any legacy or corrupt cached items missing mandatory metadata (name/title, year, or artist for music)
         Object.keys(mediaLibrary.value).forEach((cid) => {
           const m = mediaLibrary.value[cid]
-          if (m && (m.type === 'episode' || /S\d+E\d+/i.test(m.name || m.title || ''))) {
+          if (!m || !(m.name || m.title) || !m.year || (m.type === 'music' && !m.artist)) {
+            delete mediaLibrary.value[cid]
+            delete nostrContentIds.value[cid]
+          } else if (m.type === 'episode' || /S\d+E\d+/i.test(m.name || m.title || '')) {
             mediaLibrary.value[cid] = toShowLevel(m)
+          }
+        })
+
+        Object.keys(statuses.value).forEach((k) => {
+          const s = statuses.value[k]
+          if (!s?.media || !(s.media.name || s.media.title) || !s.media.year || (s.media.type === 'music' && !s.media.artist)) {
+            delete statuses.value[k]
+          }
+        })
+
+        Object.keys(ratings.value).forEach((k) => {
+          const r = ratings.value[k]
+          if (!r?.media || !(r.media.name || r.media.title) || !r.media.year || (r.media.type === 'music' && !r.media.artist)) {
+            delete ratings.value[k]
+          }
+        })
+
+        Object.keys(suggestions.value).forEach((k) => {
+          const sg = suggestions.value[k]
+          if (!sg?.media || !(sg.media.name || sg.media.title) || !sg.media.year || (sg.media.type === 'music' && !sg.media.artist)) {
+            delete suggestions.value[k]
+          } else if (Array.isArray(sg.items)) {
+            sg.items = sg.items.filter((it) => it && (it.name || it.title) && it.year && (it.type !== 'music' || it.artist))
           }
         })
       }
@@ -155,8 +181,9 @@ export const useMediaStore = defineStore('media', () => {
       return
     }
     const media = parseMediaTags(evt.tags)
-    // Drop malformed events instead of polluting state with undefined fields.
-    if (!media.contentId) return
+    // Drop malformed events missing mandatory metadata: contentId, type, name, year
+    if (!media.contentId || !media.type || !(media.name || media.title) || !media.year) return
+    if (media.type === 'music' && !media.artist) return
     const dTag = evt.tags.find((t) => t[0] === 'd')?.[1] || media.contentId
     // Mutable state is scoped per (author, d-tag): strangers' events never
     // overwrite the viewer's own status/rating.
@@ -223,10 +250,11 @@ export const useMediaStore = defineStore('media', () => {
       for (const tag of evt.tags) {
         if (!Array.isArray(tag)) continue
         if (tag[0] === 'similar' && tag[1]) {
-          const simCid = tag[1]
+          const simCid = /^[0-9a-f]{64}$/i.test(tag[1]) ? tag[1].toLowerCase() : ''
           const simType = tag[2] || 'movie'
-          const simName = tag[3] || ''
-          const simYear = tag[4] || ''
+          const simName = (tag[3] || '').trim()
+          const simYear = (tag[4] || '').trim()
+          if (!simCid || !simName || !simYear) continue
           similarItems.push({
             contentId: simCid,
             type: simType,
@@ -235,7 +263,7 @@ export const useMediaStore = defineStore('media', () => {
             year: simYear,
           })
           nostrContentIds.value[simCid] = 1
-          if (!mediaLibrary.value[simCid] && simName) {
+          if (!mediaLibrary.value[simCid] && simName && simYear) {
             mediaLibrary.value[simCid] = {
               contentId: simCid,
               type: simType,
@@ -950,6 +978,11 @@ export const useMediaStore = defineStore('media', () => {
 
   function cacheMediaItem(item) {
     if (item && item.contentId) {
+      const title = (item.title || item.name || '').trim()
+      const year = String(item.year || '').trim()
+      if (!title || !year) return
+      if (item.type === 'music' && !(item.artist || '').trim()) return
+
       // Never let empty provider fields clobber previously cached values.
       const clean = {}
       for (const [k, v] of Object.entries(item)) {
@@ -1031,7 +1064,12 @@ export const useMediaStore = defineStore('media', () => {
       })
     }
 
-    return Array.from(items.values())
+    return Array.from(items.values()).filter((item) => {
+      const hasTitle = Boolean((item.title || item.name)?.trim())
+      const hasYear = Boolean(String(item.year || '').trim())
+      const hasArtist = item.type !== 'music' || Boolean(item.artist?.trim())
+      return hasTitle && hasYear && hasArtist
+    })
   }
 
   /**
@@ -1062,16 +1100,21 @@ export const useMediaStore = defineStore('media', () => {
 
     for (const item of items) {
       if (!item?.contentId) continue
+      const rawName = (item.name || item.title || '').trim()
+      const year = String(item.year || '').trim()
+      if (!rawName || !year) continue
+      if (item.type === 'music' && !(item.artist || '').trim()) continue
+
       const contentId = item.contentId
-      const isEp = item.type === 'episode' || /S\d+E\d+/i.test(item.name || '')
+      const isEp = item.type === 'episode' || /S\d+E\d+/i.test(rawName)
       const mediaType = isEp ? 'show' : (item.type || 'movie')
-      const cleanName = mediaType === 'show' ? cleanShowTitle(item.name) : (item.name || '')
+      const cleanName = mediaType === 'show' ? cleanShowTitle(rawName) : rawName
       const mediaRef = {
         contentId,
         type: mediaType,
         name: cleanName,
         title: cleanName,
-        year: item.year || '',
+        year,
       }
 
       mediaLibrary.value[contentId] = mediaRef

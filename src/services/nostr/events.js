@@ -25,8 +25,16 @@ function assertMediaRef(media) {
   if (!MEDIA_TYPES.includes(media?.type)) {
     throw new Error(`Media type must be one of ${MEDIA_TYPES.join(', ')}.`)
   }
-  if (!media?.name) {
+  const name = (media?.name || media?.title || '').trim()
+  if (!name) {
     throw new Error('Media name is required on Nostr events.')
+  }
+  const year = media?.year !== undefined && media?.year !== null ? String(media.year).trim() : ''
+  if (!year) {
+    throw new Error('Media year is required on Nostr events.')
+  }
+  if (media?.type === 'music' && !(media?.artist || '').trim()) {
+    throw new Error('Artist is required on music Nostr events.')
   }
 }
 
@@ -40,7 +48,7 @@ function assertRating(rating) {
 
 /**
  * Builds standard base tags common to all Trackstr media events:
- * trackstr, contentid, type, name, [year], [season, episode], [artist], [qualifier]
+ * trackstr, contentid, type, name, year, [season, episode], [artist], [qualifier]
  * @param {Object} media
  * @returns {Array<Array<string>>}
  */
@@ -50,12 +58,9 @@ export function buildBaseMediaTags(media) {
     ['trackstr', APP_ID],
     ['contentid', media.contentId],
     ['type', media.type],
-    ['name', media.name],
+    ['name', (media.name || media.title).trim()],
+    ['year', String(media.year).trim()],
   ]
-
-  if (media.year) {
-    tags.push(['year', String(media.year)])
-  }
 
   // Episode records MUST carry both season and episode position tags so
   // clients can aggregate show activity under a single contentid query.
@@ -194,8 +199,14 @@ export function buildSimilarSuggestionEvent(sourceMedia, similarItems, options =
     if (!item) return
     const cid = assertContentId(item.contentId)
     const type = item.type || 'movie'
-    const name = item.name || item.title || ''
-    const year = item.year ? String(item.year) : ''
+    const name = (item.name || item.title || '').trim()
+    const year = item.year !== undefined && item.year !== null ? String(item.year).trim() : ''
+    if (!name) {
+      throw new Error('Similar media item must have a name.')
+    }
+    if (!year) {
+      throw new Error('Similar media item must have a year.')
+    }
     // Standard similar suggestion tag
     tags.push(['similar', cid, type, name, year])
     // Single-letter lookup tag for Nostr relay filtering

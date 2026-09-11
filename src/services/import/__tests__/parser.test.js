@@ -98,35 +98,96 @@ describe('Media Importer Parsers', () => {
   })
 
   describe('parseCsvFile()', () => {
-    it('parses Letterboxd watched.csv', () => {
-      const csv = `Date,Name,Year,Letterboxd URI\n2024-01-10,Dune,2021,https://boxd.it/a1\n2024-02-15,Oppenheimer,2023,https://boxd.it/a2`
-      const items = parseCsvFile(csv, 'watched.csv')
-      expect(items.length).toBe(2)
+    it('throws when mandatory Title column is missing', () => {
+      const csv = `Year,Type\n1999,movie`
+      expect(() => parseCsvFile(csv)).toThrow(/missing mandatory column.*Title/i)
+    })
+
+    it('throws when Name is used instead of strictly Title', () => {
+      const csv = `Name,Year,Type\nFight Club,1999,movie`
+      expect(() => parseCsvFile(csv)).toThrow(/missing mandatory column.*Title/i)
+    })
+
+    it('throws when mandatory Year column is missing', () => {
+      const csv = `Title,Type\nFight Club,movie`
+      expect(() => parseCsvFile(csv)).toThrow(/missing mandatory column.*Year/i)
+    })
+
+    it('throws when mandatory Type column is missing', () => {
+      const csv = `Title,Year\nFight Club,1999`
+      expect(() => parseCsvFile(csv)).toThrow(/missing mandatory column.*Type/i)
+    })
+
+    it('parses Trackstr standard CSV with Title, Year, Type, Rating, and Review', () => {
+      const csv = `Title,Year,Type,Rating,Review,Spoiler\nDune,2021,movie,9,Epic visuals!,yes`
+      const items = parseCsvFile(csv, 'dune.csv')
+      expect(items.length).toBe(1)
       expect(items[0].name).toBe('Dune')
+      expect(items[0].title).toBe('Dune')
       expect(items[0].year).toBe(2021)
-      expect(items[0].status).toBe('completed')
-    })
-
-    it('parses Letterboxd ratings.csv with star conversion', () => {
-      const csv = `Date,Name,Year,Letterboxd URI,Rating\n2024-01-10,Dune,2021,https://boxd.it/a1,4.5`
-      const items = parseCsvFile(csv, 'ratings.csv')
-      expect(items.length).toBe(1)
+      expect(items[0].type).toBe('movie')
       expect(items[0].rating).toBe(9)
-    })
-
-    it('parses Letterboxd reviews.csv with spoiler detection', () => {
-      const csv = `Date,Name,Year,Letterboxd URI,Rating,Rewatch,Review,Tags,Watched Date,Spoiler\n2024-01-10,Dune,2021,https://boxd.it/a1,4.5,,Epic visuals!,,2024-01-09,Yes`
-      const items = parseCsvFile(csv, 'reviews.csv')
-      expect(items.length).toBe(1)
       expect(items[0].review).toBe('Epic visuals!')
       expect(items[0].spoiler).toBe(true)
     })
 
-    it('parses Letterboxd watchlist.csv with plan-to-watch status', () => {
-      const csv = `Date,Name,Year,Letterboxd URI\n2024-03-01,Gladiator II,2024,https://boxd.it/a3`
-      const items = parseCsvFile(csv, 'watchlist.csv')
+    it('parses Trackstr standard multi-media CSV format (movies, shows, music)', () => {
+      const csv = [
+        'Title,Year,Type,Artist,Status,Rating,Review,Date,Spoiler',
+        'Fight Club,1999,movie,,completed,8,Timeless classic,1999-10-15,no',
+        'Severance,2022,show,,watching,9.5,Mesmerizing mystery,2022-03-01,false',
+        'OK Computer,1997,music,Radiohead,completed,10,Iconic album,1997-05-21,0',
+        'Inception,2010,movie,,plan-to-watch,,,,',
+      ].join('\n')
+
+      const items = parseCsvFile(csv, 'trackstr_export.csv')
+      expect(items.length).toBe(4)
+
+      // Movie
+      expect(items[0].name).toBe('Fight Club')
+      expect(items[0].year).toBe(1999)
+      expect(items[0].type).toBe('movie')
+      expect(items[0].status).toBe('completed')
+      expect(items[0].rating).toBe(8)
+      expect(items[0].review).toBe('Timeless classic')
+      expect(items[0].spoiler).toBe(false)
+
+      // Show
+      expect(items[1].name).toBe('Severance')
+      expect(items[1].year).toBe(2022)
+      expect(items[1].type).toBe('show')
+      expect(items[1].status).toBe('watching')
+      expect(items[1].rating).toBe(9.5)
+
+      // Music
+      expect(items[2].name).toBe('OK Computer')
+      expect(items[2].year).toBe(1997)
+      expect(items[2].type).toBe('music')
+      expect(items[2].artist).toBe('Radiohead')
+      expect(items[2].status).toBe('completed')
+      expect(items[2].rating).toBe(10)
+
+      // Plan to watch
+      expect(items[3].name).toBe('Inception')
+      expect(items[3].status).toBe('plan-to-watch')
+    })
+
+    it('skips rows missing valid 4-digit Year, Title, or Type, and reports skippedCount', () => {
+      const csv = [
+        'Title,Year,Type,Artist',
+        'Valid Movie,2020,movie,',
+        'Missing Year,,movie,',
+        ',2021,movie,',
+        'Invalid Year,not-a-year,movie,',
+        'Invalid Type,2020,unknown,',
+        'Missing Type,2020,,',
+        'Music Without Artist,2022,music,',
+      ].join('\n')
+
+      const items = parseCsvFile(csv)
       expect(items.length).toBe(1)
-      expect(items[0].status).toBe('plan-to-watch')
+      expect(items[0].name).toBe('Valid Movie')
+      expect(items.skippedCount).toBe(6)
     })
   })
 
@@ -144,6 +205,19 @@ describe('Media Importer Parsers', () => {
       expect(items[0].name).toBe('Inception')
       expect(items[0].year).toBe(2010)
       expect(items[0].rating).toBe(9)
+    })
+
+    it('skips items missing title or valid 4-digit year and tracks skippedCount', () => {
+      const json = [
+        { movie: { title: 'Valid Movie', year: 2021 } },
+        { movie: { title: '', year: 2021 } },
+        { movie: { title: 'No Year' } },
+        { show: { title: 'Bad Year Show', year: 'invalid' } },
+      ]
+      const items = parseTraktJson(json)
+      expect(items.length).toBe(1)
+      expect(items[0].name).toBe('Valid Movie')
+      expect(items.skippedCount).toBe(3)
     })
   })
 

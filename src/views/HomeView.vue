@@ -83,17 +83,22 @@ async function executeSearch() {
     const uniqueEnriched = []
 
     for (const item of items) {
+      const itemTitle = (item?.title || item?.name || '').trim()
+      const itemYear = String(item?.year || '').trim()
+      if (!itemTitle || !itemYear) continue
+      if (item.type === 'music' && !(item.artist || '').trim()) continue
+
       let contentId = ''
       let canonicalString = ''
       try {
         ;({ contentId, canonicalString } = await computeContentId({
           type: item.type,
-          title: item.title,
-          year: item.year,
+          title: itemTitle,
+          year: itemYear,
           artist: item.artist,
         }))
       } catch {
-        continue // unidentifiable result (e.g. music without artist) — skip it
+        continue // unidentifiable result (e.g. music without artist or missing year) — skip it
       }
 
       if (!seenContentIds.has(contentId)) {
