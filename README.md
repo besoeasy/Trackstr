@@ -9,7 +9,8 @@
 [![Live Demo](https://img.shields.io/badge/demo-trackstr.besoeasy.com-blue?style=flat-square)](https://trackstr.besoeasy.com/)
 [![Protocol](https://img.shields.io/badge/protocol-nostr-purple?style=flat-square)](https://nostr.com/)
 [![Stack](https://img.shields.io/badge/stack-Vue%203%20%7C%20Vite-emerald?style=flat-square)](https://vuejs.org/)
-[![Tests](https://img.shields.io/badge/tests-155%20passing-brightgreen?style=flat-square)](#-testing)
+[![Tests](https://img.shields.io/badge/tests-172%20passing-brightgreen?style=flat-square)](#-testing)
+[![Contributing](https://img.shields.io/badge/contributions-welcome-orange?style=flat-square)](./CONTRIBUTING.md)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Open-lightgrey?style=flat-square)](#-license)
 
 Trackstr unites personal media tracking and an open social layer into a single decentralized stack:
@@ -158,7 +159,7 @@ Trackstr is engineered to be an ideal playground for AI-assisted development:
 - **Zero Backend Friction:** No database servers, no microservices, and no credentials to configure. Run `npm run dev` and your frontend connects directly to open Nostr relays.
 - **No API Keys or Paywalls:** Build media features without waiting for TMDB API approvals or paying IMDb enterprise licensing fees. Query and publish freely.
 - **Agent-Ready Context:** Hand [AGENTS.md](./AGENTS.md) directly to your AI coding agent — it contains the complete event schema, deterministic content ID hashing rules, and validation checklists.
-- **Sub-Second Test Feedback:** 150+ Vitest unit tests run in under 1 second (`npm test` or `npm run test:podman`), enabling fast, automated AI iteration loops.
+- **Sub-Second Test Feedback:** 170+ Vitest unit tests run in ~1 second (`npm test` or `npm run test:podman`), enabling fast, automated AI iteration loops.
 
 Have an idea for a custom theme, a mini player, a Raycast extension, a Discord bot, or a CLI? Fork it, prompt your favorite model, and ship it.
 
@@ -166,13 +167,18 @@ Have an idea for a custom theme, a mini player, a Raycast extension, a Discord b
 
 ## 🤝 Contributing
 
-Contributions are welcome! Whether you are building client applications on top of Trackstr's open data, improving metadata curation, or adding scrobbler integrations:
+Contributions of all kinds are warmly welcomed! Check out our comprehensive **[Contributing Guide](./CONTRIBUTING.md)** for:
+- 💡 Ideas on where to help (UI/UX, open metadata parsers, streaming scrobblers, protocol features)
+- 🤖 Guidelines for AI-assisted development and vibe coding with [AGENTS.md](./AGENTS.md)
+- 🛠️ Step-by-step dev setup with Node or Podman/Docker
+- 🧪 Running the test suite and submitting pull requests
 
+### Quick Contribution Flow:
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/open-metadata`)
-3. Commit your changes (`git commit -m 'feat: open metadata enhancement'`)
-4. Push to the branch (`git push origin feature/open-metadata`)
-5. Open a Pull Request
+2. Create a feature branch (`git checkout -b feat/my-awesome-feature`)
+3. Commit your changes (`git commit -m 'feat: add my awesome feature'`)
+4. Push to your branch (`git push origin feat/my-awesome-feature`)
+5. Open a Pull Request!
 
 ---
 
