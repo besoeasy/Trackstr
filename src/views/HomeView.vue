@@ -3,8 +3,8 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMediaStore } from '@/stores/media.js'
 import { useAuthStore } from '@/stores/auth.js'
-import { searchTmdb } from '@/services/api/tmdb.js'
-import { searchMusic } from '@/services/api/music.js'
+import { searchTmdb, getTmdbDetails } from '@/services/api/tmdb.js'
+import { searchMusic, getMusicDetails } from '@/services/api/music.js'
 import { fetchShowEpisodes } from '@/services/api/tv.js'
 import { computeContentId } from '@/utils/contentId.js'
 import MediaCard from '@/components/MediaCard.vue'
@@ -152,6 +152,70 @@ function clearSearch() {
   syncUrlQuery()
 }
 
+// Enrichment cache: contentId -> in-flight/settled promise. Nostr events
+// carry no poster, so grids lazily fetch provider details (same path as the
+// detail page) and cache them via mediaStore for instant repeat renders.
+const enrichmentCache = new Map()
+
+async function enrichMediaItem(item) {
+  if (!item?.contentId || item.poster) return item
+  const title = item.title || item.name || ''
+  if (!title || title === 'Loading...') return item
+  if (enrichmentCache.has(item.contentId)) {
+    return enrichmentCache.get(item.contentId)
+  }
+  const promise = (async () => {
+    try {
+      let details = null
+      if (item.type === 'music') {
+        details = await getMusicDetails({ title, artist: item.artist || '', year: item.year || '' })
+      } else if (item.type === 'movie' || item.type === 'show') {
+        details = await getTmdbDetails(item.type, item.tmdbId || item.id, title, item.year || '')
+      }
+      if (details?.poster) {
+        const enriched = { ...item, ...details, contentId: item.contentId }
+        mediaStore.cacheMediaItem(enriched)
+        return enriched
+      }
+    } catch (err) {
+      console.warn('Failed to enrich grid item:', title, err)
+    }
+    return item
+  })()
+  enrichmentCache.set(item.contentId, promise)
+  return promise
+}
+
+// Background-enrich a grid row without blocking first paint: render Nostr
+// titles immediately, then patch posters in as provider lookups resolve.
+function enrichGridItems(items, apply) {
+  const targets = (items || []).filter((it) => it?.contentId && !it.poster)
+  if (!targets.length) return
+  // Small concurrency keeps Wikipedia/TVMaze happy on an 18-card grid.
+  const CONCURRENCY = 4
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < targets.length) {
+      const item = targets[cursor++]
+      const enriched = await enrichMediaItem(item)
+      if (enriched !== item) apply(enriched)
+    }
+  }
+  Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker)).catch(() => {})
+}
+
+function applyEnrichedPopular(enriched) {
+  const idx = popularItems.value.findIndex((it) => it.contentId === enriched.contentId)
+  if (idx !== -1) popularItems.value[idx] = { ...popularItems.value[idx], ...enriched }
+}
+
+function applyEnrichedRecommendation(enriched) {
+  for (const row of ['movies', 'series', 'music']) {
+    const idx = recommendations.value[row].findIndex((it) => it.contentId === enriched.contentId)
+    if (idx !== -1) recommendations.value[row][idx] = { ...recommendations.value[row][idx], ...enriched }
+  }
+}
+
 // Load Popular & Featured titles dynamically from Nostr events
 async function loadPopularFromNostr() {
   isLoadingPopular.value = true
@@ -161,6 +225,7 @@ async function loadPopularFromNostr() {
       limit: 18,
     })
     popularItems.value = items
+    enrichGridItems(items, applyEnrichedPopular)
   } catch (err) {
     console.warn('Failed to load popular items from Nostr:', err)
   } finally {
@@ -342,6 +407,7 @@ async function loadRecommendations() {
       .slice(0, MAX_RECOMMENDATIONS_PER_CATEGORY)
 
     recommendations.value = { movies, series: seriesRow, music }
+    enrichGridItems([...movies, ...seriesRow, ...music], applyEnrichedRecommendation)
   } catch (err) {
     console.warn('Failed to load recommendations:', err)
   } finally {
