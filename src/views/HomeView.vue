@@ -240,12 +240,13 @@ async function loadPopularFromNostr() {
 
 // ---- Recommendation Engine ----
 // Weighted categories so the recommendations feel like a real recommendation
-// engine: continue-watching episodes rank highest, then popular unwatched
-// items, then random community picks. Popularity + recency add boost, and
-// a jitter term keeps picks from being deterministic.
+// engine: continue-watching episodes rank highest, followed by Kind 35401
+// community suggestions (personalized based on titles you loved/tracked),
+// then popular unwatched items, and random community picks.
 const SUGGESTION_WEIGHTS = {
   'missed-episode': 5,
-  unwatched: 3,
+  'community-suggestion': 4,
+  unwatched: 2.5,
   random: 1,
 }
 
@@ -331,23 +332,145 @@ async function buildMissedEpisodeCandidates() {
   return candidates
 }
 
-// Score a candidate: base category weight + popularity + recency + jitter.
+// Gathers the viewer's tracked and highly rated items to seed Kind 35401 recommendations
+function getUserSeedMedia() {
+  if (!authStore.pubkey) return []
+  const userPubkey = authStore.pubkey
+  const seeds = new Map()
+
+  // 1. User ratings (higher rating = stronger recommendation seed)
+  Object.values(mediaStore.ratings).forEach((r) => {
+    if (r && r.pubkey === userPubkey && r.contentId) {
+      const rating = Number(r.rating) || 0
+      const weight = rating >= 8 ? 2.5 : rating >= 6 ? 1.8 : 1.0
+      const title = r.media?.name || r.media?.title || ''
+      seeds.set(r.contentId, {
+        contentId: r.contentId,
+        title,
+        name: title,
+        type: r.media?.type || 'movie',
+        rating,
+        weight,
+        createdAt: r.createdAt || 0,
+      })
+    }
+  })
+
+  // 2. User statuses (completed, watching, listening)
+  Object.values(mediaStore.statuses).forEach((s) => {
+    if (s && s.pubkey === userPubkey && s.contentId) {
+      const isCompleted = s.status === 'completed'
+      const isWatching = ['watching', 'listening'].includes(s.status)
+      const baseWeight = isCompleted ? 2.0 : isWatching ? 1.8 : 1.2
+      const existing = seeds.get(s.contentId)
+      const title = s.media?.name || s.media?.title || existing?.title || ''
+      seeds.set(s.contentId, {
+        contentId: s.contentId,
+        title,
+        name: title,
+        type: s.media?.type || existing?.type || 'movie',
+        rating: existing?.rating ?? null,
+        weight: Math.max(existing?.weight || 0, baseWeight),
+        createdAt: Math.max(existing?.createdAt || 0, s.createdAt || 0),
+      })
+    }
+  })
+
+  return Array.from(seeds.values()).sort((a, b) => {
+    if (b.weight !== a.weight) return b.weight - a.weight
+    return (b.createdAt || 0) - (a.createdAt || 0)
+  })
+}
+
+// Builds personalized Kind 35401 community suggestion candidates matching the specified media type
+async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
+  const candidates = []
+  const seenTargets = new Set()
+
+  const typeMatches = (mType) => {
+    if (!type) return true
+    if (type === 'show') return mType === 'show' || mType === 'episode'
+    return mType === type
+  }
+
+  // 1. Personalized suggestions for items the user liked or tracked
+  for (const seed of userSeeds) {
+    const suggestionsForSeed = mediaStore.getSimilarSuggestionsForMedia(seed.contentId)
+    for (const sugg of suggestionsForSeed) {
+      if (!sugg?.contentId || seenTargets.has(sugg.contentId)) continue
+      if (!typeMatches(sugg.type)) continue
+      if (isWatchedByUser(sugg)) continue
+
+      seenTargets.add(sugg.contentId)
+      const seedTitle = seed.title || seed.name || 'a title you tracked'
+      const reason = seed.rating && seed.rating >= 7
+        ? `Because you liked ${seedTitle}`
+        : `Similar to ${seedTitle}`
+
+      const libMedia = mediaStore.getMediaMetadata(sugg.contentId)
+      candidates.push({
+        ...sugg,
+        title: sugg.title || sugg.name,
+        name: sugg.name || sugg.title,
+        poster: libMedia?.poster || sugg.poster || '',
+        category: 'community-suggestion',
+        reason,
+        seedWeight: (seed.weight || 1) * 1.5,
+        latestActivityAt: sugg.latestCreatedAt || 0,
+      })
+    }
+  }
+
+  // 2. Global community suggestions (Community consensus picks)
+  const allSuggestions = mediaStore.getAllCommunitySuggestions ? mediaStore.getAllCommunitySuggestions() : []
+  for (const sugg of allSuggestions) {
+    if (!sugg?.contentId || seenTargets.has(sugg.contentId)) continue
+    if (!typeMatches(sugg.type)) continue
+    if (isWatchedByUser(sugg)) continue
+
+    seenTargets.add(sugg.contentId)
+    const libMedia = mediaStore.getMediaMetadata(sugg.contentId)
+    candidates.push({
+      ...sugg,
+      title: sugg.title || sugg.name,
+      name: sugg.name || sugg.title,
+      poster: libMedia?.poster || sugg.poster || '',
+      category: 'community-suggestion',
+      reason: sugg.voteCount > 1 ? `Community consensus (${sugg.voteCount})` : 'Community pick',
+      seedWeight: 0.5,
+      latestActivityAt: sugg.latestCreatedAt || 0,
+    })
+  }
+
+  return candidates
+}
+
+// Score a candidate: base category weight + popularity/votes + seed boost + recency + jitter.
 function scoreCandidate(candidate) {
   const base = SUGGESTION_WEIGHTS[candidate.category] || 1
-  const popularity = Math.min(candidate.nostrEventCount || 0, 10) * 0.3
+  const votes = candidate.voteCount || candidate.nostrEventCount || 0
+  const popularity = Math.min(votes, 10) * 0.35
   const ageDays = Math.max(0, (Date.now() / 1000 - (candidate.latestActivityAt || 0)) / 86400)
   const recency = Math.max(0, 1 - ageDays / 7) * 1.5
-  const jitter = Math.random() * 1.5
-  return base + popularity + recency + jitter
+  const seedBoost = candidate.seedWeight || 0
+  const jitter = Math.random() * 1.2
+  return base + popularity + seedBoost + recency + jitter
 }
 
 // Builds a scored, sorted recommendation list for one media type:
-// unwatched popular items (medium weight) + random community picks (low
-// weight, high jitter). Deduplicated and ranked by score.
-async function buildCategoryRecommendations(type) {
-  const popular = await mediaStore.fetchPopularMediaFromEvents({ type, limit: 60 })
+// Kind 35401 community suggestions (high weight) + unwatched popular items
+// (medium weight) + random community picks (low weight). Ranked by score.
+async function buildCategoryRecommendations(type, userSeeds = []) {
+  const [popular, communitySuggestions] = await Promise.all([
+    mediaStore.fetchPopularMediaFromEvents({ type, limit: 60 }),
+    buildCommunitySuggestionCandidates(type, userSeeds),
+  ])
   const pool = []
 
+  // 1. Kind 35401 community suggestions
+  pool.push(...communitySuggestions)
+
+  // 2. Unwatched popular items
   const unwatched = popular.filter((item) => !isWatchedByUser(item))
   const label = type === 'show' ? 'Popular series' : type === 'music' ? 'Popular music' : 'Popular movie'
   pool.push(
@@ -358,8 +481,7 @@ async function buildCategoryRecommendations(type) {
     }))
   )
 
-  // Random community picks — low weight, high jitter, occasionally a
-  // rewatch nudge for something you've already seen.
+  // 3. Random community picks — low weight, high jitter
   const randomCount = Math.min(4, popular.length)
   for (let i = 0; i < randomCount; i++) {
     const pick = popular[Math.floor(Math.random() * popular.length)]
@@ -387,14 +509,24 @@ async function buildCategoryRecommendations(type) {
 }
 
 // Builds all three recommendation rows (movies, series, music) in parallel.
-// Missed episodes (continue watching) rank highest in the series row.
+// Missed episodes and Kind 35401 suggestions rank highest.
 async function loadRecommendations() {
   isLoadingRecommendations.value = true
   try {
+    // 1. Gather the user's seed media from statuses and ratings
+    const userSeeds = getUserSeedMedia()
+    const seedContentIds = userSeeds.map((s) => s.contentId)
+
+    // 2. Query Nostr relays for Kind 35401 suggestions matching seed items
+    if (typeof mediaStore.fetchCommunitySuggestions === 'function') {
+      await mediaStore.fetchCommunitySuggestions(seedContentIds)
+    }
+
+    // 3. Build category recommendations in parallel
     const [movies, series, music, missedEpisodes] = await Promise.all([
-      buildCategoryRecommendations('movie'),
-      buildCategoryRecommendations('show'),
-      buildCategoryRecommendations('music'),
+      buildCategoryRecommendations('movie', userSeeds),
+      buildCategoryRecommendations('show', userSeeds),
+      buildCategoryRecommendations('music', userSeeds),
       buildMissedEpisodeCandidates(),
     ])
 
@@ -650,7 +782,7 @@ watch(
               <span class="badge badge-primary nostr-live-tag">⚡ Powered by Nostr</span>
             </div>
             <p class="section-subtitle">
-              Personalized picks weighted by your taste — continue watching, popular, and random finds
+              Personalized picks weighted by your taste — continue watching, community suggestions, popular, and random finds
             </p>
           </div>
 

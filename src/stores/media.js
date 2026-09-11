@@ -516,6 +516,52 @@ export const useMediaStore = defineStore('media', () => {
   }
 
   /**
+   * Fetches community suggestions (Kind 35401) from Nostr relays.
+   * Queries specifically for user seed contentIds if provided, plus general network suggestions.
+   */
+  async function fetchCommunitySuggestions(contentIds = [], limit = 50) {
+    try {
+      const validCids = Array.isArray(contentIds)
+        ? contentIds
+            .map((cid) => String(cid || '').split(':')[0].toLowerCase())
+            .filter((cid) => /^[0-9a-f]{64}$/i.test(cid))
+        : []
+
+      const filters = []
+      if (validCids.length > 0) {
+        // Query by #d and #contentid for seed items (cap at 20 to respect relay filter length)
+        const cappedSeeds = Array.from(new Set(validCids)).slice(0, 20)
+        filters.push(
+          {
+            kinds: [KINDS.SIMILAR_SUGGESTION],
+            '#d': cappedSeeds,
+            limit,
+          },
+          {
+            kinds: [KINDS.SIMILAR_SUGGESTION],
+            '#contentid': cappedSeeds,
+            limit,
+          }
+        )
+      }
+
+      // Also query general recent community suggestions
+      filters.push({
+        kinds: [KINDS.SIMILAR_SUGGESTION],
+        limit: Math.min(limit, 40),
+      })
+
+      const events = await nostrClient.queryEvents(filters, undefined, 4000)
+      ingestBatch(events)
+      saveToIndexedDb()
+      return events
+    } catch (err) {
+      console.warn('Failed to fetch community suggestions from relays:', err)
+      return []
+    }
+  }
+
+  /**
    * Fetches and ranks popular & featured media directly from Nostr events
    * @param {Object} [options]
    * @param {number} [options.limit=24]
@@ -842,6 +888,57 @@ export const useMediaStore = defineStore('media', () => {
         if (!item?.contentId) return
         const targetCid = item.contentId
         if (targetCid.toLowerCase() === base) return // Don't suggest self
+
+        const existing = aggregated.get(targetCid) || {
+          contentId: targetCid,
+          type: item.type || 'movie',
+          name: item.name || item.title || '',
+          title: item.name || item.title || '',
+          year: item.year || '',
+          voteCount: 0,
+          recommenders: [],
+          notes: [],
+          latestCreatedAt: 0,
+        }
+
+        if (!existing.recommenders.includes(entry.pubkey)) {
+          existing.recommenders.push(entry.pubkey)
+          existing.voteCount += 1
+        }
+
+        if (entry.note && !existing.notes.includes(entry.note)) {
+          existing.notes.push(entry.note)
+        }
+
+        if ((entry.createdAt || 0) > existing.latestCreatedAt) {
+          existing.latestCreatedAt = entry.createdAt || 0
+        }
+
+        aggregated.set(targetCid, existing)
+      })
+    })
+
+    return Array.from(aggregated.values()).sort((a, b) => {
+      if (b.voteCount !== a.voteCount) return b.voteCount - a.voteCount
+      return (b.latestCreatedAt || 0) - (a.latestCreatedAt || 0)
+    })
+  }
+
+  /**
+   * Aggregates all Kind 35401 community suggestions across all source items.
+   * Orders targets by vote count (distinct recommending authors) and recency.
+   */
+  function getAllCommunitySuggestions() {
+    const aggregated = new Map()
+
+    Object.values(suggestions.value).forEach((entry) => {
+      if (!entry || !Array.isArray(entry.items)) return
+      const sourceBase = String(entry.contentId || entry.dTag || '').split(':')[0].toLowerCase()
+
+      entry.items.forEach((item) => {
+        if (!item?.contentId) return
+        const targetCid = item.contentId.toLowerCase()
+        if (targetCid === sourceBase) return
 
         const existing = aggregated.get(targetCid) || {
           contentId: targetCid,
@@ -1320,6 +1417,7 @@ export const useMediaStore = defineStore('media', () => {
     fetchMediaDetails,
     fetchRecentFeed,
     fetchPopularMediaFromEvents,
+    fetchCommunitySuggestions,
     setStatus,
     setRating,
     addReview,
@@ -1331,6 +1429,7 @@ export const useMediaStore = defineStore('media', () => {
     getMediaMetadata,
     getReviewsForMedia,
     getSimilarSuggestionsForMedia,
+    getAllCommunitySuggestions,
     getActivityForMedia,
     getAverageRatingForMedia,
     getDiscoveredEpisodesForMedia,

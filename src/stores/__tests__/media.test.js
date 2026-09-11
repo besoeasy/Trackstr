@@ -617,5 +617,57 @@ describe('Unified Ratings and Reviews (Kind 35400)', () => {
       expect(suggestions[1].contentId).toBe(THIRD_CID)
       expect(suggestions[1].voteCount).toBe(1)
     })
+
+    it('getAllCommunitySuggestions() aggregates suggestions across multiple source items', async () => {
+      const { media } = setupStores()
+      const SOURCE_1 = '11'.repeat(32)
+      const SOURCE_2 = '22'.repeat(32)
+      const SUGGESTED_A = 'aa'.repeat(32)
+      const SUGGESTED_B = 'bb'.repeat(32)
+
+      stubs.queryEvents.mockResolvedValueOnce([
+        {
+          id: 'sug-1',
+          pubkey: OWN,
+          created_at: 1000,
+          kind: 35401,
+          tags: [
+            ['d', SOURCE_1],
+            ['contentid', SOURCE_1],
+            ['type', 'movie'],
+            ['name', 'Movie 1'],
+            ['year', '2001'],
+            ['similar', SUGGESTED_A, 'movie', 'Matrix', '1999'],
+          ],
+          content: '',
+        },
+        {
+          id: 'sug-2',
+          pubkey: STRANGER,
+          created_at: 1005,
+          kind: 35401,
+          tags: [
+            ['d', SOURCE_2],
+            ['contentid', SOURCE_2],
+            ['type', 'movie'],
+            ['name', 'Movie 2'],
+            ['year', '2002'],
+            ['similar', SUGGESTED_A, 'movie', 'Matrix', '1999'],
+            ['similar', SUGGESTED_B, 'movie', 'Inception', '2010'],
+          ],
+          content: '',
+        },
+      ])
+
+      await media.fetchCommunitySuggestions([SOURCE_1, SOURCE_2])
+
+      const all = media.getAllCommunitySuggestions()
+      expect(all).toHaveLength(2)
+      // Matrix has 2 votes (suggested from both sources), Inception has 1
+      expect(all[0].contentId).toBe(SUGGESTED_A)
+      expect(all[0].voteCount).toBe(2)
+      expect(all[1].contentId).toBe(SUGGESTED_B)
+      expect(all[1].voteCount).toBe(1)
+    })
   })
 

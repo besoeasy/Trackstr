@@ -23,12 +23,14 @@ const { src: resolvedPoster, onError: onPosterError } = useMediaImage(() => {
 const reasonLabel = computed(() => {
   if (props.item.reason) return props.item.reason
   if (props.item.category === 'missed-episode') return 'Continue watching'
+  if (props.item.category === 'community-suggestion') return 'Community pick'
   if (props.item.category === 'unwatched') return 'Popular'
   return 'Random pick'
 })
 
 const reasonClass = computed(() => {
   if (props.item.category === 'missed-episode') return 'rec-reason-continue'
+  if (props.item.category === 'community-suggestion') return 'rec-reason-community'
   if (props.item.category === 'unwatched') return 'rec-reason-popular'
   return 'rec-reason-random'
 })
@@ -78,6 +80,9 @@ function navigateToDetail() {
         <span v-if="item.artist" class="rec-artist">{{ item.artist }}</span>
         <span v-else-if="item.year" class="rec-year">{{ item.year }}</span>
         <span v-if="isEpisode && item.episodeName" class="rec-episode-name">{{ item.episodeName }}</span>
+        <span v-else-if="item.category === 'community-suggestion' && item.voteCount" class="rec-votes">
+          • 👥 {{ item.voteCount }}
+        </span>
       </div>
     </div>
   </div>
@@ -141,12 +146,22 @@ function navigateToDetail() {
   padding: 2px 6px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rec-reason-continue {
   background: rgba(16, 185, 129, 0.9);
   color: #04110c;
   border: 1px solid rgba(16, 185, 129, 0.5);
+}
+
+.rec-reason-community {
+  background: rgba(168, 85, 247, 0.9);
+  color: #ffffff;
+  border: 1px solid rgba(168, 85, 247, 0.5);
 }
 
 .rec-reason-popular {
@@ -227,6 +242,13 @@ function navigateToDetail() {
   text-overflow: ellipsis;
   color: var(--accent-emerald);
   font-size: 0.72rem;
+}
+
+.rec-votes {
+  color: #c084fc;
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {
