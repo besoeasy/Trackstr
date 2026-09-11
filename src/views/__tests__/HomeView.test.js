@@ -183,4 +183,99 @@ describe('HomeView - Recommended for You', () => {
     const watchedCard = cards.find((c) => c.attributes('data-cid') === WATCHED_CID)
     expect(watchedCard).toBeUndefined()
   })
+
+  it('excludes dropped or low-rated titles from seeding recommendations', async () => {
+    const authStore = useAuthStore()
+    const mediaStore = useMediaStore()
+
+    const USER_PUBKEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    const DISLIKED_CID = '11'.repeat(32)
+    const SUGGESTED_CID = '22'.repeat(32)
+
+    authStore.pubkey = USER_PUBKEY
+
+    // User rated movie 3/10 (disliked)
+    mediaStore.ratings[`${USER_PUBKEY}:${DISLIKED_CID}`] = {
+      contentId: DISLIKED_CID,
+      dTag: DISLIKED_CID,
+      pubkey: USER_PUBKEY,
+      rating: 3,
+      media: { contentId: DISLIKED_CID, type: 'movie', name: 'Bad Movie', title: 'Bad Movie', year: '2005' },
+    }
+
+    // Community suggestion attached to the disliked movie
+    mediaStore.suggestions[`stranger:${DISLIKED_CID}`] = {
+      contentId: DISLIKED_CID,
+      dTag: DISLIKED_CID,
+      pubkey: 'stranger',
+      items: [
+        { contentId: SUGGESTED_CID, type: 'movie', name: 'Similar To Bad', title: 'Similar To Bad', year: '2006' },
+      ],
+      media: { contentId: DISLIKED_CID, type: 'movie', name: 'Bad Movie', title: 'Bad Movie', year: '2005' },
+      createdAt: 1000,
+    }
+
+    vi.spyOn(mediaStore, 'fetchPopularMediaFromEvents').mockResolvedValue([])
+
+    const wrapper = mount(HomeView, {
+      global: {
+        stubs: {
+          MediaCard: true,
+          RecommendationCard: {
+            props: ['item'],
+            template: '<div class="rec-card-stub" :data-cid="item.contentId">{{ item.name }}</div>',
+          },
+          RouterLink: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const cards = wrapper.findAll('.rec-card-stub')
+    const card = cards.find((c) => c.attributes('data-cid') === SUGGESTED_CID)
+    // Should NOT be recommended because it stems from a seed rated <= 5
+    expect(card).toBeUndefined()
+  })
+
+  it('removes dismissed items and prevents them from showing in recommendations', async () => {
+    const authStore = useAuthStore()
+    const mediaStore = useMediaStore()
+
+    const USER_PUBKEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    const DISMISSED_CID = '33'.repeat(32)
+    const OTHER_CID = '44'.repeat(32)
+
+    authStore.pubkey = USER_PUBKEY
+
+    // Pre-dismiss DISMISSED_CID
+    mediaStore.dismissRecommendation(DISMISSED_CID)
+
+    vi.spyOn(mediaStore, 'fetchPopularMediaFromEvents').mockResolvedValue([
+      { contentId: DISMISSED_CID, type: 'movie', name: 'Dismissed Movie', year: 2021, nostrEventCount: 10 },
+      { contentId: OTHER_CID, type: 'movie', name: 'Good Movie', year: 2021, nostrEventCount: 5 },
+    ])
+
+    const wrapper = mount(HomeView, {
+      global: {
+        stubs: {
+          MediaCard: true,
+          RecommendationCard: {
+            props: ['item'],
+            template: '<div class="rec-card-stub" :data-cid="item.contentId">{{ item.name }}</div>',
+          },
+          RouterLink: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const cards = wrapper.findAll('.rec-card-stub')
+    const dismissedCard = cards.find((c) => c.attributes('data-cid') === DISMISSED_CID)
+    expect(dismissedCard).toBeUndefined()
+
+    const otherCard = cards.find((c) => c.attributes('data-cid') === OTHER_CID)
+    expect(otherCard).toBeDefined()
+  })
 })

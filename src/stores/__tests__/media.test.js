@@ -669,5 +669,54 @@ describe('Unified Ratings and Reviews (Kind 35400)', () => {
       expect(all[1].contentId).toBe(SUGGESTED_B)
       expect(all[1].voteCount).toBe(1)
     })
+
+    it('manages dismissed recommendations properly', () => {
+      const { media } = setupStores()
+      const TEST_CID = 'ee'.repeat(32)
+
+      expect(media.isRecommendationDismissed(TEST_CID)).toBe(false)
+      media.dismissRecommendation(TEST_CID)
+      expect(media.isRecommendationDismissed(TEST_CID)).toBe(true)
+
+      media.clearDismissedRecommendations()
+      expect(media.isRecommendationDismissed(TEST_CID)).toBe(false)
+    })
+
+    it('detects follow engagement when followed user rates or suggests media', () => {
+      const { media } = setupStores()
+      const TEST_CID = 'ff'.repeat(32)
+
+      media.follows[FOLLOWED] = 1
+
+      // Initially no engagement
+      expect(media.getFollowEngagement(TEST_CID).isFollowedPick).toBe(false)
+
+      // Followed user rates it 9/10
+      media.ratings[`${FOLLOWED}:${TEST_CID}`] = {
+        contentId: TEST_CID,
+        pubkey: FOLLOWED,
+        rating: 9,
+      }
+
+      const engagement = media.getFollowEngagement(TEST_CID)
+      expect(engagement.isFollowedPick).toBe(true)
+      expect(engagement.followedCount).toBe(1)
+      expect(engagement.topFollowedPubkey).toBe(FOLLOWED)
+      expect(engagement.rating).toBe(9)
+      expect(engagement.reason).toContain('Loved by followed user')
+    })
+
+    it('queries followed authors in fetchFollowedActivity', async () => {
+      const { media } = setupStores()
+      media.follows[FOLLOWED] = 1
+
+      stubs.queryEvents.mockResolvedValueOnce([
+        ratingEvent({ pubkey: FOLLOWED, rating: '9', at: 1200 }),
+      ])
+
+      const events = await media.fetchFollowedActivity(50)
+      expect(stubs.queryEvents).toHaveBeenCalled()
+      expect(events).toHaveLength(1)
+    })
   })
 

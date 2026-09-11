@@ -34,6 +34,8 @@ const isLoadingPopular = ref(false)
 const MAX_RECOMMENDATIONS_PER_CATEGORY = 5
 const recommendations = ref({ movies: [], series: [], music: [] })
 const isLoadingRecommendations = ref(false)
+const recentlyShownContentIds = ref(new Set())
+const categoryCandidatePools = ref({ movies: [], series: [], music: [] })
 
 let debounceTimer = null
 let searchSeq = 0 // latest search wins; stale responses are discarded
@@ -243,24 +245,29 @@ async function loadPopularFromNostr() {
 // engine: continue-watching episodes rank highest, followed by Kind 35401
 // community suggestions (personalized based on titles you loved/tracked),
 // then popular unwatched items, and random community picks.
+// Weighted categories so the recommendations feel like a real recommendation
+// engine: continue-watching episodes rank highest, followed by followed picks,
+// Kind 35401 community suggestions, unwatched popular items, and random picks.
 const SUGGESTION_WEIGHTS = {
-  'missed-episode': 5,
-  'community-suggestion': 4,
-  unwatched: 2.5,
-  random: 1,
+  'missed-episode': 6.0,
+  'followed-pick': 4.5,
+  'community-suggestion': 3.5,
+  unwatched: 2.0,
+  random: 1.0,
 }
 
-// A movie counts as "already watched" when the viewer has marked it
-// completed/watching or rated it — those are the states that mean "seen".
+// A movie counts as "already watched / excluded" when the viewer has marked it
+// completed/watching/dropped/on-hold, rated it, or dismissed it.
 function isWatchedByUser(item) {
   if (!item?.contentId) return false
+  if (mediaStore.isRecommendationDismissed && mediaStore.isRecommendationDismissed(item.contentId)) return true
   // Episode candidates are judged by their own episode state, never the
   // parent show's (a "watching" show must not hide its unwatched episodes).
   if (item.type === 'episode' && item.season && item.episode) {
     return isEpisodeWatched(item.contentId, item.season, item.episode)
   }
   const status = mediaStore.getMediaStatus(item.contentId)
-  if (status && ['completed', 'watching'].includes(status.status)) return true
+  if (status && ['completed', 'watching', 'dropped', 'on-hold'].includes(status.status)) return true
   const rating = mediaStore.getMediaRating(item.contentId)
   return rating !== null && rating !== undefined
 }
@@ -332,17 +339,19 @@ async function buildMissedEpisodeCandidates() {
   return candidates
 }
 
-// Gathers the viewer's tracked and highly rated items to seed Kind 35401 recommendations
+// Gathers the viewer's tracked and highly rated items to seed Kind 35401 recommendations.
+// Excludes low ratings (<= 5) and dropped/on-hold statuses to prevent negative seeding.
 function getUserSeedMedia() {
   if (!authStore.pubkey) return []
   const userPubkey = authStore.pubkey
   const seeds = new Map()
 
-  // 1. User ratings (higher rating = stronger recommendation seed)
+  // 1. User ratings (higher rating = stronger recommendation seed; ignore <= 5)
   Object.values(mediaStore.ratings).forEach((r) => {
     if (r && r.pubkey === userPubkey && r.contentId) {
       const rating = Number(r.rating) || 0
-      const weight = rating >= 8 ? 2.5 : rating >= 6 ? 1.8 : 1.0
+      if (rating <= 5) return
+      const weight = rating >= 8 ? 2.5 : 1.8
       const title = r.media?.name || r.media?.title || ''
       seeds.set(r.contentId, {
         contentId: r.contentId,
@@ -356,12 +365,15 @@ function getUserSeedMedia() {
     }
   })
 
-  // 2. User statuses (completed, watching, listening)
+  // 2. User statuses (completed, watching, listening; strictly exclude dropped / on-hold)
   Object.values(mediaStore.statuses).forEach((s) => {
     if (s && s.pubkey === userPubkey && s.contentId) {
+      if (s.status === 'dropped' || s.status === 'on-hold') return
       const isCompleted = s.status === 'completed'
       const isWatching = ['watching', 'listening'].includes(s.status)
-      const baseWeight = isCompleted ? 2.0 : isWatching ? 1.8 : 1.2
+      if (!isCompleted && !isWatching) return
+
+      const baseWeight = isCompleted ? 2.0 : 1.8
       const existing = seeds.get(s.contentId)
       const title = s.media?.name || s.media?.title || existing?.title || ''
       seeds.set(s.contentId, {
@@ -382,10 +394,60 @@ function getUserSeedMedia() {
   })
 }
 
+// Identifies titles the user explicitly disliked (rated <= 5 or dropped)
+function getDislikedContentIds() {
+  if (!authStore.pubkey) return new Set()
+  const userPubkey = authStore.pubkey
+  const disliked = new Set()
+
+  Object.values(mediaStore.ratings).forEach((r) => {
+    if (r && r.pubkey === userPubkey && r.contentId) {
+      const rating = Number(r.rating) || 0
+      if (rating > 0 && rating <= 5) {
+        disliked.add(String(r.contentId).split(':')[0].toLowerCase())
+      }
+    }
+  })
+
+  Object.values(mediaStore.statuses).forEach((s) => {
+    if (s && s.pubkey === userPubkey && s.contentId) {
+      if (s.status === 'dropped') {
+        disliked.add(String(s.contentId).split(':')[0].toLowerCase())
+      }
+    }
+  })
+
+  return disliked
+}
+
+// Checks if a suggestion stems solely from sources the user disliked
+function isSuggestedOnlyFromDisliked(targetCid, disliked) {
+  if (!disliked || !disliked.size) return false
+  const targetBase = String(targetCid).split(':')[0].toLowerCase()
+  let hasValidSource = false
+  let hasDislikedSource = false
+
+  for (const entry of Object.values(mediaStore.suggestions)) {
+    if (!entry || !Array.isArray(entry.items)) continue
+    const sourceBase = String(entry.contentId || entry.dTag || '').split(':')[0].toLowerCase()
+    const matchesTarget = entry.items.some((it) => it && String(it.contentId).split(':')[0].toLowerCase() === targetBase)
+    if (matchesTarget) {
+      if (disliked.has(sourceBase)) {
+        hasDislikedSource = true
+      } else {
+        hasValidSource = true
+      }
+    }
+  }
+
+  return hasDislikedSource && !hasValidSource
+}
+
 // Builds personalized Kind 35401 community suggestion candidates matching the specified media type
 async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
   const candidates = []
   const seenTargets = new Set()
+  const dislikedSeeds = getDislikedContentIds()
 
   const typeMatches = (mType) => {
     if (!type) return true
@@ -400,6 +462,7 @@ async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
       if (!sugg?.contentId || seenTargets.has(sugg.contentId)) continue
       if (!typeMatches(sugg.type)) continue
       if (isWatchedByUser(sugg)) continue
+      if (dislikedSeeds.has(String(sugg.contentId).split(':')[0].toLowerCase())) continue
 
       seenTargets.add(sugg.contentId)
       const seedTitle = seed.title || seed.name || 'a title you tracked'
@@ -407,7 +470,9 @@ async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
         ? `Because you liked ${seedTitle}`
         : `Similar to ${seedTitle}`
 
+      const followEngagement = mediaStore.getFollowEngagement ? mediaStore.getFollowEngagement(sugg.contentId) : {}
       const libMedia = mediaStore.getMediaMetadata(sugg.contentId)
+
       candidates.push({
         ...sugg,
         title: sugg.title || sugg.name,
@@ -416,28 +481,41 @@ async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
         category: 'community-suggestion',
         reason,
         seedWeight: (seed.weight || 1) * 1.5,
+        followEngagement,
         latestActivityAt: sugg.latestCreatedAt || 0,
       })
     }
   }
 
-  // 2. Global community suggestions (Community consensus picks)
+  // 2. Global community suggestions (Community consensus picks & followed picks)
   const allSuggestions = mediaStore.getAllCommunitySuggestions ? mediaStore.getAllCommunitySuggestions() : []
   for (const sugg of allSuggestions) {
     if (!sugg?.contentId || seenTargets.has(sugg.contentId)) continue
     if (!typeMatches(sugg.type)) continue
     if (isWatchedByUser(sugg)) continue
+    if (dislikedSeeds.has(String(sugg.contentId).split(':')[0].toLowerCase())) continue
+    if (isSuggestedOnlyFromDisliked(sugg.contentId, dislikedSeeds)) continue
 
     seenTargets.add(sugg.contentId)
+    const followEngagement = mediaStore.getFollowEngagement ? mediaStore.getFollowEngagement(sugg.contentId) : {}
     const libMedia = mediaStore.getMediaMetadata(sugg.contentId)
+
+    let category = 'community-suggestion'
+    let reason = sugg.voteCount > 1 ? `Community consensus (${sugg.voteCount})` : 'Community pick'
+    if (followEngagement.isFollowedPick && followEngagement.reason) {
+      category = 'followed-pick'
+      reason = followEngagement.reason
+    }
+
     candidates.push({
       ...sugg,
       title: sugg.title || sugg.name,
       name: sugg.name || sugg.title,
       poster: libMedia?.poster || sugg.poster || '',
-      category: 'community-suggestion',
-      reason: sugg.voteCount > 1 ? `Community consensus (${sugg.voteCount})` : 'Community pick',
+      category,
+      reason,
       seedWeight: 0.5,
+      followEngagement,
       latestActivityAt: sugg.latestCreatedAt || 0,
     })
   }
@@ -445,7 +523,7 @@ async function buildCommunitySuggestionCandidates(type, userSeeds = []) {
   return candidates
 }
 
-// Score a candidate: base category weight + popularity/votes + seed boost + recency + jitter.
+// Score a candidate: base category weight + popularity + seed boost + recency + follow graph boost + rotation penalty.
 function scoreCandidate(candidate) {
   const base = SUGGESTION_WEIGHTS[candidate.category] || 1
   const votes = candidate.voteCount || candidate.nostrEventCount || 0
@@ -453,13 +531,41 @@ function scoreCandidate(candidate) {
   const ageDays = Math.max(0, (Date.now() / 1000 - (candidate.latestActivityAt || 0)) / 86400)
   const recency = Math.max(0, 1 - ageDays / 7) * 1.5
   const seedBoost = candidate.seedWeight || 0
-  const jitter = Math.random() * 1.2
-  return base + popularity + seedBoost + recency + jitter
+
+  // Follow boost: prioritized if someone you follow loved/suggested/watched it
+  let followBoost = 0
+  if (candidate.followEngagement?.isFollowedPick) {
+    followBoost = 2.5 + Math.min(candidate.followEngagement.followedCount || 1, 3) * 0.5
+  }
+
+  let totalScore = base + popularity + seedBoost + recency + followBoost
+
+  // Session rotation penalty: if displayed in the current batch, heavily deprioritize so fresh titles rotate in
+  if (recentlyShownContentIds.value.has(candidate.contentId)) {
+    totalScore *= 0.15
+  }
+
+  return Math.max(0.1, totalScore)
 }
 
-// Builds a scored, sorted recommendation list for one media type:
-// Kind 35401 community suggestions (high weight) + unwatched popular items
-// (medium weight) + random community picks (low weight). Ranked by score.
+/**
+ * Weighted random sampling without replacement using the Efraimidis-Spirakis algorithm
+ * (key = random() ^ (1 / weight)). Higher scored items are much more likely to be chosen,
+ * while allowing candidate diversity across refreshes.
+ */
+function sampleWeightedCandidates(candidates, count = 5) {
+  if (!candidates || candidates.length <= count) return candidates ? [...candidates] : []
+
+  const keyed = candidates.map((c) => ({
+    item: c,
+    key: Math.pow(Math.random(), 1 / Math.max(0.01, c.score || 0.1)),
+  }))
+
+  keyed.sort((a, b) => b.key - a.key)
+  return keyed.slice(0, count).map((k) => k.item)
+}
+
+// Builds a scored candidate pool for one media type
 async function buildCategoryRecommendations(type, userSeeds = []) {
   const [popular, communitySuggestions] = await Promise.all([
     mediaStore.fetchPopularMediaFromEvents({ type, limit: 60 }),
@@ -470,22 +576,30 @@ async function buildCategoryRecommendations(type, userSeeds = []) {
   // 1. Kind 35401 community suggestions
   pool.push(...communitySuggestions)
 
-  // 2. Unwatched popular items
+  // 2. Unwatched popular items (with follow graph recognition)
   const unwatched = popular.filter((item) => !isWatchedByUser(item))
   const label = type === 'show' ? 'Popular series' : type === 'music' ? 'Popular music' : 'Popular movie'
-  pool.push(
-    ...unwatched.map((item) => ({
+  for (const item of unwatched) {
+    const followEngagement = mediaStore.getFollowEngagement ? mediaStore.getFollowEngagement(item.contentId) : {}
+    let category = 'unwatched'
+    let reason = label
+    if (followEngagement.isFollowedPick && followEngagement.reason) {
+      category = 'followed-pick'
+      reason = followEngagement.reason
+    }
+    pool.push({
       ...item,
-      category: 'unwatched',
-      reason: label,
-    }))
-  )
+      category,
+      reason,
+      followEngagement,
+    })
+  }
 
-  // 3. Random community picks — low weight, high jitter
+  // 3. Random community picks — low weight
   const randomCount = Math.min(4, popular.length)
   for (let i = 0; i < randomCount; i++) {
     const pick = popular[Math.floor(Math.random() * popular.length)]
-    if (pick) {
+    if (pick && !isWatchedByUser(pick)) {
       pool.push({
         ...pick,
         category: 'random',
@@ -494,7 +608,7 @@ async function buildCategoryRecommendations(type, userSeeds = []) {
     }
   }
 
-  // Deduplicate by contentId (a movie can appear in multiple categories).
+  // Deduplicate by contentId
   const seen = new Set()
   const deduped = pool.filter((c) => {
     if (!c?.contentId || seen.has(c.contentId)) return false
@@ -502,46 +616,60 @@ async function buildCategoryRecommendations(type, userSeeds = []) {
     return true
   })
 
-  return deduped
-    .map((c) => ({ ...c, score: scoreCandidate(c) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_RECOMMENDATIONS_PER_CATEGORY)
+  return deduped.map((c) => ({ ...c, score: scoreCandidate(c) }))
 }
 
 // Builds all three recommendation rows (movies, series, music) in parallel.
-// Missed episodes and Kind 35401 suggestions rank highest.
 async function loadRecommendations() {
   isLoadingRecommendations.value = true
   try {
-    // 1. Gather the user's seed media from statuses and ratings
+    // 1. Fetch recent activity from followed users in parallel if available
+    if (typeof mediaStore.fetchFollowedActivity === 'function') {
+      await mediaStore.fetchFollowedActivity(50)
+    }
+
+    // 2. Gather user seeds from statuses and ratings
     const userSeeds = getUserSeedMedia()
     const seedContentIds = userSeeds.map((s) => s.contentId)
 
-    // 2. Query Nostr relays for Kind 35401 suggestions matching seed items
+    // 3. Query Nostr relays for Kind 35401 suggestions matching seed items
     if (typeof mediaStore.fetchCommunitySuggestions === 'function') {
       await mediaStore.fetchCommunitySuggestions(seedContentIds)
     }
 
-    // 3. Build category recommendations in parallel
-    const [movies, series, music, missedEpisodes] = await Promise.all([
+    // 4. Build category candidate pools in parallel
+    const [moviePool, showPool, musicPool, missedEpisodes] = await Promise.all([
       buildCategoryRecommendations('movie', userSeeds),
       buildCategoryRecommendations('show', userSeeds),
       buildCategoryRecommendations('music', userSeeds),
       buildMissedEpisodeCandidates(),
     ])
 
+    categoryCandidatePools.value.movies = moviePool
+    categoryCandidatePools.value.music = musicPool
+
     const seenSeries = new Set()
-    const dedupedSeries = [...missedEpisodes, ...series].filter((c) => {
+    const dedupedSeries = [...missedEpisodes, ...showPool].filter((c) => {
       const key = c?.contentId ? `${c.contentId}:s${c.season || 0}e${c.episode || 0}` : null
       if (!key || seenSeries.has(key)) return false
       seenSeries.add(key)
       return true
     })
 
-    const seriesRow = dedupedSeries
-      .map((c) => ({ ...c, score: scoreCandidate(c) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_RECOMMENDATIONS_PER_CATEGORY)
+    const scoredSeries = dedupedSeries.map((c) => ({ ...c, score: scoreCandidate(c) }))
+    categoryCandidatePools.value.series = scoredSeries
+
+    // Sample top items per category using weighted sampling
+    const movies = sampleWeightedCandidates(moviePool, MAX_RECOMMENDATIONS_PER_CATEGORY)
+    const seriesRow = sampleWeightedCandidates(scoredSeries, MAX_RECOMMENDATIONS_PER_CATEGORY)
+    const music = sampleWeightedCandidates(musicPool, MAX_RECOMMENDATIONS_PER_CATEGORY)
+
+    // Update recently shown set so clicking "Refresh Picks" immediately rotates in new candidates
+    const currentShown = new Set()
+    ;[...movies, ...seriesRow, ...music].forEach((c) => {
+      if (c?.contentId) currentShown.add(c.contentId)
+    })
+    recentlyShownContentIds.value = currentShown
 
     recommendations.value = { movies, series: seriesRow, music }
     enrichGridItems([...movies, ...seriesRow, ...music], applyEnrichedRecommendation)
@@ -549,6 +677,42 @@ async function loadRecommendations() {
     console.warn('Failed to load recommendations:', err)
   } finally {
     isLoadingRecommendations.value = false
+  }
+}
+
+// Handles user dismissal of an unwanted recommendation
+function handleDismiss(category, item) {
+  if (!item?.contentId) return
+  mediaStore.dismissRecommendation(item.contentId)
+
+  const isMatchingItem = (it) => {
+    if (it.contentId !== item.contentId) return false
+    if (it.type === 'episode' && item.type === 'episode') {
+      return it.season === item.season && it.episode === item.episode
+    }
+    return true
+  }
+
+  if (recommendations.value[category]) {
+    recommendations.value[category] = recommendations.value[category].filter(
+      (it) => !isMatchingItem(it)
+    )
+  }
+
+  // Draw a fresh replacement from the candidate pool if available
+  const pool = categoryCandidatePools.value[category] || []
+  const activeIds = new Set(recommendations.value[category].map((it) => it.contentId))
+  activeIds.add(item.contentId)
+
+  const available = pool.filter(
+    (c) => !activeIds.has(c.contentId) && !mediaStore.isRecommendationDismissed(c.contentId)
+  )
+  if (available.length > 0) {
+    const replacement = sampleWeightedCandidates(available, 1)[0]
+    if (replacement) {
+      recommendations.value[category].push(replacement)
+      enrichGridItems([replacement], applyEnrichedRecommendation)
+    }
   }
 }
 
@@ -809,6 +973,7 @@ watch(
                 v-for="item in recommendations.movies.slice(0, 5)"
                 :key="item.contentId"
                 :item="item"
+                @dismiss="(it) => handleDismiss('movies', it)"
               />
             </div>
           </div>
@@ -820,6 +985,7 @@ watch(
                 v-for="item in recommendations.series.slice(0, 5)"
                 :key="`${item.contentId}:s${item.season || 0}e${item.episode || 0}`"
                 :item="item"
+                @dismiss="(it) => handleDismiss('series', it)"
               />
             </div>
           </div>
@@ -831,6 +997,7 @@ watch(
                 v-for="item in recommendations.music.slice(0, 5)"
                 :key="item.contentId"
                 :item="item"
+                @dismiss="(it) => handleDismiss('music', it)"
               />
             </div>
           </div>

@@ -11,6 +11,8 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['dismiss'])
+
 const router = useRouter()
 const mediaStore = useMediaStore()
 
@@ -23,6 +25,7 @@ const { src: resolvedPoster, onError: onPosterError } = useMediaImage(() => {
 const reasonLabel = computed(() => {
   if (props.item.reason) return props.item.reason
   if (props.item.category === 'missed-episode') return 'Continue watching'
+  if (props.item.category === 'followed-pick') return 'Followed pick'
   if (props.item.category === 'community-suggestion') return 'Community pick'
   if (props.item.category === 'unwatched') return 'Popular'
   return 'Random pick'
@@ -30,10 +33,18 @@ const reasonLabel = computed(() => {
 
 const reasonClass = computed(() => {
   if (props.item.category === 'missed-episode') return 'rec-reason-continue'
+  if (props.item.category === 'followed-pick') return 'rec-reason-followed'
   if (props.item.category === 'community-suggestion') return 'rec-reason-community'
   if (props.item.category === 'unwatched') return 'rec-reason-popular'
   return 'rec-reason-random'
 })
+
+function dismiss() {
+  if (props.item?.contentId) {
+    mediaStore.dismissRecommendation(props.item.contentId)
+  }
+  emit('dismiss', props.item)
+}
 
 function navigateToDetail() {
   if (!props.item.contentId) return
@@ -69,6 +80,15 @@ function navigateToDetail() {
       </div>
 
       <span class="badge rec-reason-badge" :class="reasonClass">{{ reasonLabel }}</span>
+      <button
+        type="button"
+        class="rec-dismiss-btn"
+        title="Not interested (dismiss recommendation)"
+        aria-label="Dismiss recommendation"
+        @click.stop="dismiss"
+      >
+        ✕
+      </button>
       <span v-if="isEpisode" class="rec-episode-tag">S{{ item.season }}E{{ item.episode }}</span>
     </div>
 
@@ -146,7 +166,7 @@ function navigateToDetail() {
   padding: 2px 6px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 42px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -156,6 +176,12 @@ function navigateToDetail() {
   background: rgba(16, 185, 129, 0.9);
   color: #04110c;
   border: 1px solid rgba(16, 185, 129, 0.5);
+}
+
+.rec-reason-followed {
+  background: rgba(217, 70, 239, 0.9);
+  color: #ffffff;
+  border: 1px solid rgba(217, 70, 239, 0.5);
 }
 
 .rec-reason-community {
@@ -174,6 +200,47 @@ function navigateToDetail() {
   background: rgba(59, 130, 246, 0.9);
   color: #060f1c;
   border: 1px solid rgba(59, 130, 246, 0.5);
+}
+
+.rec-dismiss-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--text-secondary, #a3a3a3);
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast, 0.15s ease), background var(--transition-fast, 0.15s ease), color var(--transition-fast, 0.15s ease), transform var(--transition-fast, 0.15s ease);
+}
+
+.rec-card:hover .rec-dismiss-btn,
+.rec-card:focus-within .rec-dismiss-btn {
+  opacity: 0.85;
+}
+
+.rec-dismiss-btn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.9);
+  color: #ffffff;
+  border-color: rgba(239, 68, 68, 1);
+  transform: scale(1.1);
+}
+
+@media (hover: none) {
+  .rec-dismiss-btn {
+    opacity: 0.65;
+  }
 }
 
 .rec-episode-tag {

@@ -30,6 +30,7 @@ export const useMediaStore = defineStore('media', () => {
   const suggestions = ref({}) // key: authorKey -> { dTag, contentId, items, note, eventId, createdAt, pubkey, media, cachedAt }
   const mediaLibrary = ref({}) // key: contentId -> base media object with cachedAt
   const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
+  const dismissedRecommendations = ref({}) // key: base contentId -> timestamp
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
   // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
   // Nostr-only surfaces must filter by this set. key: contentId -> 1
@@ -100,7 +101,7 @@ export const useMediaStore = defineStore('media', () => {
   async function initCache() {
     try {
       // 1. Load non-expired media and event cache from IndexedDB (30-day TTL)
-      const [cachedMedia, cachedStatuses, cachedRatings, cachedSuggestions, savedFollows, savedLastSynced, savedNostrCids] = await Promise.all([
+      const [cachedMedia, cachedStatuses, cachedRatings, cachedSuggestions, savedFollows, savedLastSynced, savedNostrCids, savedDismissed] = await Promise.all([
         loadMediaCache(),
         loadEventCache('status'),
         loadEventCache('rating'),
@@ -108,6 +109,7 @@ export const useMediaStore = defineStore('media', () => {
         getAppMeta('follows', {}),
         getAppMeta('lastSyncedAt', 0),
         getAppMeta('nostrContentIds', {}),
+        getAppMeta('dismissedRecommendations', {}),
       ])
 
       mediaLibrary.value = { ...(cachedMedia || {}), ...mediaLibrary.value }
@@ -115,6 +117,7 @@ export const useMediaStore = defineStore('media', () => {
       ratings.value = { ...(cachedRatings || {}), ...ratings.value }
       suggestions.value = { ...(cachedSuggestions || {}), ...suggestions.value }
       follows.value = { ...(savedFollows || {}), ...follows.value }
+      dismissedRecommendations.value = { ...(savedDismissed || {}), ...dismissedRecommendations.value }
       if (!lastSyncedAt.value) {
         lastSyncedAt.value = savedLastSynced || 0
       }
@@ -150,6 +153,7 @@ export const useMediaStore = defineStore('media', () => {
         saveEventCache('rating', ratings.value),
         saveEventCache('suggestion', suggestions.value),
         saveAppMeta('follows', follows.value),
+        saveAppMeta('dismissedRecommendations', dismissedRecommendations.value),
         saveAppMeta('lastSyncedAt', lastSyncedAt.value),
         saveAppMeta('nostrContentIds', nostrContentIds.value),
       ])
@@ -164,6 +168,7 @@ export const useMediaStore = defineStore('media', () => {
     suggestions.value = {}
     mediaLibrary.value = {}
     follows.value = {}
+    dismissedRecommendations.value = {}
     nostrContentIds.value = {}
     lastSyncedAt.value = 0
     await clearMediaAndEventCache()
@@ -418,6 +423,135 @@ export const useMediaStore = defineStore('media', () => {
       console.warn('Failed to fetch follow list:', err)
       return { ...follows.value }
     }
+  }
+
+  /**
+   * Queries Nostr relays for recent media tracking activity from followed users.
+   */
+  async function fetchFollowedActivity(limit = 60) {
+    const followedPubkeys = Object.keys(follows.value || {})
+    if (!followedPubkeys.length) return []
+    try {
+      const targetAuthors = followedPubkeys.slice(0, 50)
+      const events = await nostrClient.queryEvents(
+        [
+          {
+            kinds: [KINDS.STATUS, KINDS.RATING, KINDS.SIMILAR_SUGGESTION],
+            authors: targetAuthors,
+            limit,
+          },
+        ],
+        undefined,
+        4000
+      )
+      if (events && events.length) {
+        ingestBatch(events)
+        saveToIndexedDb()
+      }
+      return events || []
+    } catch (err) {
+      console.warn('Failed to fetch followed activity from Nostr:', err)
+      return []
+    }
+  }
+
+  /**
+   * Returns follow social graph signals for a media item.
+   * Checks if any followed pubkey rated it high (>= 7), marked it completed/watching, or suggested it.
+   */
+  function getFollowEngagement(contentId) {
+    const followedPubkeys = follows.value || {}
+    const res = {
+      isFollowedPick: false,
+      followedCount: 0,
+      topFollowedPubkey: null,
+      rating: null,
+      reason: null,
+    }
+    if (!contentId || !Object.keys(followedPubkeys).length) return res
+
+    const baseContentId = String(contentId).split(':')[0].toLowerCase()
+
+    // 1. Ratings from followed users
+    for (const r of Object.values(ratings.value)) {
+      if (!r || !r.pubkey) continue
+      if (!followedPubkeys[String(r.pubkey).toLowerCase()]) continue
+      const rCid = String(r.contentId || '').split(':')[0].toLowerCase()
+      if (rCid === baseContentId) {
+        const score = Number(r.rating)
+        if (score >= 7) {
+          res.isFollowedPick = true
+          res.followedCount++
+          if (!res.topFollowedPubkey || (res.rating && score > res.rating)) {
+            res.topFollowedPubkey = r.pubkey
+            res.rating = score
+            res.reason = score >= 8 ? `Loved by followed user (${score}/10)` : 'Recommended by someone you follow'
+          }
+        }
+      }
+    }
+
+    // 2. Kind 35401 suggestions from followed users
+    for (const s of Object.values(suggestions.value)) {
+      if (!s || !s.pubkey) continue
+      if (!followedPubkeys[String(s.pubkey).toLowerCase()]) continue
+      const hasMatch = (s.items || []).some((item) => {
+        const itemCid = String(item.contentId || '').split(':')[0].toLowerCase()
+        return itemCid === baseContentId
+      })
+      if (hasMatch) {
+        res.isFollowedPick = true
+        res.followedCount++
+        if (!res.reason) {
+          res.topFollowedPubkey = s.pubkey
+          res.reason = 'Suggested by someone you follow'
+        }
+      }
+    }
+
+    // 3. Statuses from followed users (watching / completed)
+    for (const st of Object.values(statuses.value)) {
+      if (!st || !st.pubkey) continue
+      if (!followedPubkeys[String(st.pubkey).toLowerCase()]) continue
+      const stCid = String(st.contentId || '').split(':')[0].toLowerCase()
+      if (stCid === baseContentId && ['completed', 'watching', 'listening'].includes(st.status)) {
+        res.isFollowedPick = true
+        res.followedCount++
+        if (!res.reason) {
+          res.topFollowedPubkey = st.pubkey
+          res.reason = 'Followed user is watching'
+        }
+      }
+    }
+
+    return res
+  }
+
+  /**
+   * Dismiss a recommendation so it will not be suggested again.
+   */
+  function dismissRecommendation(contentId) {
+    if (!contentId) return
+    const base = String(contentId).split(':')[0].toLowerCase()
+    dismissedRecommendations.value[base] = Date.now()
+    saveToIndexedDb()
+  }
+
+  /**
+   * Check whether a recommendation has been dismissed.
+   */
+  function isRecommendationDismissed(contentId) {
+    if (!contentId) return false
+    const base = String(contentId).split(':')[0].toLowerCase()
+    return !!dismissedRecommendations.value[base]
+  }
+
+  /**
+   * Clears dismissed recommendations.
+   */
+  function clearDismissedRecommendations() {
+    dismissedRecommendations.value = {}
+    saveToIndexedDb()
   }
 
   /**
@@ -1438,6 +1572,12 @@ export const useMediaStore = defineStore('media', () => {
     searchEventAutocomplete,
     importLocalMedia,
     trackedItemsList,
+    dismissedRecommendations,
+    dismissRecommendation,
+    isRecommendationDismissed,
+    clearDismissedRecommendations,
+    getFollowEngagement,
+    fetchFollowedActivity,
     isCacheLoaded,
     cacheInitPromise,
     initCache,
