@@ -328,7 +328,7 @@ export async function searchTmdb(query, filter = 'all') {
 }
 
 /**
- * Fetches rich details for a movie or show across multiple sources (TMDB + TVMaze)
+ * Fetches rich details for a movie or show across multiple sources (TMDB + TVMaze + Wikipedia)
  * @param {'movie'|'show'} type
  * @param {number|string} [id]
  * @param {string} [title]
@@ -499,6 +499,78 @@ export async function getTmdbDetails(type, id, title = '', year = '') {
       }
     } catch (wikiErr) {
       console.warn('Wikipedia TV enrichment failed:', wikiErr)
+    }
+  }
+
+  // 4. Fallback to Wikipedia for movies if poster or overview is still missing
+  // (keyless — mirrors the TV-series fallback above so movie detail pages
+  // render without a TMDB API key).
+  if (type === 'movie' && (!result || !result.poster || !result.overview) && (title || result?.title)) {
+    try {
+      const movieTitle = (title || result?.title || '').trim()
+      const candidates = []
+      if (year) candidates.push(`${movieTitle} (${year} film)`)
+      candidates.push(`${movieTitle} (film)`, movieTitle)
+
+      let sum = null
+      for (const candidate of candidates) {
+        try {
+          const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(candidate)}`, {
+            headers: { 'User-Agent': 'Trackstr/1.0' },
+          })
+          if (!wikiRes.ok) continue
+          const candidateSum = await wikiRes.json()
+          if (!candidateSum || candidateSum.type === 'disambiguation') continue
+          // Guard against non-film pages (e.g. novel, song, or place with the same name).
+          if (candidate !== movieTitle && !/film|movie/i.test(candidateSum.description || candidateSum.title || '')) continue
+          sum = candidateSum
+          break
+        } catch {}
+      }
+
+      // Last resort: reuse the Wikipedia movie search (handles odd disambiguation titles).
+      if (!sum) {
+        const searchResults = await searchWikipediaMovies(movieTitle)
+        const yearMatch = year
+          ? searchResults.find((r) => r.year === String(year))
+          : null
+        const best = yearMatch || searchResults[0]
+        if (best) {
+          sum = {
+            title: best.title,
+            description: '',
+            extract: best.overview,
+            originalimage: best.poster ? { source: best.poster } : undefined,
+            thumbnail: best.poster ? { source: best.poster } : undefined,
+          }
+        }
+      }
+
+      if (sum) {
+        const yearMatch = (sum.description || sum.extract || '').match(/\b(19\d\d|20\d\d)\b/)
+        const cleanTitle = (sum.title || movieTitle).replace(/\s*\([^)]*film[^)]*\)/i, '').trim()
+        const poster = sum.originalimage?.source || sum.thumbnail?.source || ''
+        if (!result) {
+          result = {
+            type: 'movie',
+            title: cleanTitle,
+            name: cleanTitle,
+            year: yearMatch ? yearMatch[1] : year,
+            overview: sum.extract || '',
+            poster,
+            banner: sum.originalimage?.source || '',
+            genres: ['Movie'],
+            sources: ['Wikipedia'],
+          }
+        } else {
+          if (!result.overview) result.overview = sum.extract || ''
+          if (!result.poster) result.poster = poster
+          if (!result.banner) result.banner = sum.originalimage?.source || ''
+          if (!result.sources.includes('Wikipedia')) result.sources.push('Wikipedia')
+        }
+      }
+    } catch (wikiErr) {
+      console.warn('Wikipedia movie enrichment failed:', wikiErr)
     }
   }
 
