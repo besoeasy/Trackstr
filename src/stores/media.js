@@ -9,18 +9,27 @@ import {
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
 import { buildDTag, cleanShowTitle, assertContentId } from '@/utils/contentId.js'
+import {
+  saveMediaCache,
+  loadMediaCache,
+  saveEventCache,
+  loadEventCache,
+  saveAppMeta,
+  getAppMeta,
+  pruneExpiredCache,
+  migrateLocalStorageToIndexedDb,
+  clearMediaAndEventCache,
+} from '@/services/db/indexedDb.js'
 import { useAuthStore } from './auth.js'
-
-const LOCAL_STORAGE_KEY = 'trackstr_media_cache'
 
 export const useMediaStore = defineStore('media', () => {
   const authStore = useAuthStore()
 
   // State
-  const statuses = ref({}) // key: dTag -> { status, progress, eventId, createdAt, media }
-  const ratings = ref({}) // key: dTag -> { rating, content, spoiler, eventId, createdAt, media }
-  const suggestions = ref({}) // key: authorKey -> { dTag, contentId, items, note, eventId, createdAt, pubkey, media }
-  const mediaLibrary = ref({}) // key: contentId -> base media object
+  const statuses = ref({}) // key: dTag -> { status, progress, eventId, createdAt, media, cachedAt }
+  const ratings = ref({}) // key: dTag -> { rating, content, spoiler, eventId, createdAt, media, cachedAt }
+  const suggestions = ref({}) // key: authorKey -> { dTag, contentId, items, note, eventId, createdAt, pubkey, media, cachedAt }
+  const mediaLibrary = ref({}) // key: contentId -> base media object with cachedAt
   const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
   // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
@@ -48,77 +57,125 @@ export const useMediaStore = defineStore('media', () => {
 
   const isSyncing = ref(false)
   const lastSyncedAt = ref(0)
+  const isCacheLoaded = ref(false)
 
-  // Load from local storage for local-first instant rendering
-  loadFromLocalStorage()
+  // Asynchronous cache initialization (IndexedDB with 30-day expiry + legacy localStorage migration)
+  const cacheInitPromise = initCache()
 
-  function loadFromLocalStorage() {
-    try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
-      if (raw) {
-        const data = JSON.parse(raw)
-        statuses.value = data.statuses || {}
-        ratings.value = data.ratings || {}
-        suggestions.value = data.suggestions || {}
-        mediaLibrary.value = data.mediaLibrary || {}
-        follows.value = data.follows || {}
-        lastSyncedAt.value = data.lastSyncedAt || 0
-        nostrContentIds.value = data.nostrContentIds || {}
-
-        // Prune any legacy or corrupt cached items missing mandatory metadata (name/title, year, or artist for music)
-        Object.keys(mediaLibrary.value).forEach((cid) => {
-          const m = mediaLibrary.value[cid]
-          if (!m || !(m.name || m.title) || !m.year || (m.type === 'music' && !m.artist)) {
-            delete mediaLibrary.value[cid]
-            delete nostrContentIds.value[cid]
-          } else if (m.type === 'episode' || /S\d+E\d+/i.test(m.name || m.title || '')) {
-            mediaLibrary.value[cid] = toShowLevel(m)
-          }
-        })
-
-        Object.keys(statuses.value).forEach((k) => {
-          const s = statuses.value[k]
-          if (!s?.media || !(s.media.name || s.media.title) || !s.media.year || (s.media.type === 'music' && !s.media.artist)) {
-            delete statuses.value[k]
-          }
-        })
-
-        Object.keys(ratings.value).forEach((k) => {
-          const r = ratings.value[k]
-          if (!r?.media || !(r.media.name || r.media.title) || !r.media.year || (r.media.type === 'music' && !r.media.artist)) {
-            delete ratings.value[k]
-          }
-        })
-
-        Object.keys(suggestions.value).forEach((k) => {
-          const sg = suggestions.value[k]
-          if (!sg?.media || !(sg.media.name || sg.media.title) || !sg.media.year || (sg.media.type === 'music' && !sg.media.artist)) {
-            delete suggestions.value[k]
-          } else if (Array.isArray(sg.items)) {
-            sg.items = sg.items.filter((it) => it && (it.name || it.title) && it.year && (it.type !== 'music' || it.artist))
-          }
-        })
+  function cleanseMemoryCache() {
+    // Prune any legacy or corrupt cached items missing mandatory metadata (name/title, year, or artist for music)
+    Object.keys(mediaLibrary.value).forEach((cid) => {
+      const m = mediaLibrary.value[cid]
+      if (!m || !(m.name || m.title) || !m.year || (m.type === 'music' && !m.artist)) {
+        delete mediaLibrary.value[cid]
+        delete nostrContentIds.value[cid]
+      } else if (m.type === 'episode' || /S\d+E\d+/i.test(m.name || m.title || '')) {
+        mediaLibrary.value[cid] = toShowLevel(m)
       }
+    })
+
+    Object.keys(statuses.value).forEach((k) => {
+      const s = statuses.value[k]
+      if (!s?.media || !(s.media.name || s.media.title) || !s.media.year || (s.media.type === 'music' && !s.media.artist)) {
+        delete statuses.value[k]
+      }
+    })
+
+    Object.keys(ratings.value).forEach((k) => {
+      const r = ratings.value[k]
+      if (!r?.media || !(r.media.name || r.media.title) || !r.media.year || (r.media.type === 'music' && !r.media.artist)) {
+        delete ratings.value[k]
+      }
+    })
+
+    Object.keys(suggestions.value).forEach((k) => {
+      const sg = suggestions.value[k]
+      if (!sg?.media || !(sg.media.name || sg.media.title) || !sg.media.year || (sg.media.type === 'music' && !sg.media.artist)) {
+        delete suggestions.value[k]
+      } else if (Array.isArray(sg.items)) {
+        sg.items = sg.items.filter((it) => it && (it.name || it.title) && it.year && (it.type !== 'music' || it.artist))
+      }
+    })
+  }
+
+  async function initCache() {
+    try {
+      // 1. Automatically migrate legacy localStorage payload if it exists
+      await migrateLocalStorageToIndexedDb()
+
+      // 2. Load non-expired media and event cache from IndexedDB (30-day TTL)
+      const [cachedMedia, cachedStatuses, cachedRatings, cachedSuggestions, savedFollows, savedLastSynced, savedNostrCids] = await Promise.all([
+        loadMediaCache(),
+        loadEventCache('status'),
+        loadEventCache('rating'),
+        loadEventCache('suggestion'),
+        getAppMeta('follows', {}),
+        getAppMeta('lastSyncedAt', 0),
+        getAppMeta('nostrContentIds', {}),
+      ])
+
+      mediaLibrary.value = { ...(cachedMedia || {}), ...mediaLibrary.value }
+      statuses.value = { ...(cachedStatuses || {}), ...statuses.value }
+      ratings.value = { ...(cachedRatings || {}), ...ratings.value }
+      suggestions.value = { ...(cachedSuggestions || {}), ...suggestions.value }
+      follows.value = { ...(savedFollows || {}), ...follows.value }
+      if (!lastSyncedAt.value) {
+        lastSyncedAt.value = savedLastSynced || 0
+      }
+      nostrContentIds.value = { ...(savedNostrCids || {}), ...nostrContentIds.value }
+
+      // 3. Cleanse any invalid or corrupt memory entries
+      cleanseMemoryCache()
+
+      // 4. Background purge of expired records (>30 days) from IndexedDB
+      pruneExpiredCache().catch((err) => console.warn('Cache pruning warning:', err))
+
+      isCacheLoaded.value = true
     } catch (err) {
-      console.warn('Failed to load media cache from localStorage:', err)
+      console.warn('Failed to load media & event cache from IndexedDB:', err)
+      isCacheLoaded.value = true
     }
   }
 
-  function saveToLocalStorage() {
+  let saveDebounceTimer = null
+
+  function saveToIndexedDb() {
+    if (saveDebounceTimer) clearTimeout(saveDebounceTimer)
+    saveDebounceTimer = setTimeout(() => {
+      flushSaveToIndexedDb()
+    }, 150)
+  }
+
+  async function flushSaveToIndexedDb() {
     try {
-      const data = {
-        statuses: statuses.value,
-        ratings: ratings.value,
-        suggestions: suggestions.value,
-        mediaLibrary: mediaLibrary.value,
-        follows: follows.value,
-        lastSyncedAt: lastSyncedAt.value,
-        nostrContentIds: nostrContentIds.value,
-      }
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data))
+      await Promise.all([
+        saveMediaCache(mediaLibrary.value),
+        saveEventCache('status', statuses.value),
+        saveEventCache('rating', ratings.value),
+        saveEventCache('suggestion', suggestions.value),
+        saveAppMeta('follows', follows.value),
+        saveAppMeta('lastSyncedAt', lastSyncedAt.value),
+        saveAppMeta('nostrContentIds', nostrContentIds.value),
+      ])
     } catch (err) {
-      console.warn('Failed to save media cache to localStorage:', err)
+      console.warn('Failed to save media cache to IndexedDB:', err)
     }
+  }
+
+  // Backwards-compatible aliases so existing code and tests work seamlessly
+  const saveToLocalStorage = saveToIndexedDb
+  saveToLocalStorage.flush = flushSaveToIndexedDb
+  const loadFromLocalStorage = initCache
+
+  async function clearCache() {
+    statuses.value = {}
+    ratings.value = {}
+    suggestions.value = {}
+    mediaLibrary.value = {}
+    follows.value = {}
+    nostrContentIds.value = {}
+    lastSyncedAt.value = 0
+    await clearMediaAndEventCache()
   }
 
   /**
@@ -1291,5 +1348,10 @@ export const useMediaStore = defineStore('media', () => {
     searchEventAutocomplete,
     importLocalMedia,
     trackedItemsList,
+    isCacheLoaded,
+    cacheInitPromise,
+    initCache,
+    saveToLocalStorage,
+    clearCache,
   }
 })

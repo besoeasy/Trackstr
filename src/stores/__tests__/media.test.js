@@ -24,6 +24,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth.js'
 import { useMediaStore } from '@/stores/media.js'
 import { KINDS } from '@/services/nostr/events.js'
+import { clearMediaAndEventCache } from '@/services/db/indexedDb.js'
+
+beforeEach(async () => {
+  await clearMediaAndEventCache()
+})
 
 const OWN = 'aa'.repeat(32)
 const STRANGER = 'bb'.repeat(32)
@@ -54,6 +59,7 @@ function ratingEvent({ pubkey = OWN, rating = '8', at = 1000, id = 'e1' }) {
 
 
 function setupStores() {
+  clearMediaAndEventCache()
   localStorage.clear()
   setActivePinia(createPinia())
   stubs.queryEvents.mockReset().mockResolvedValue([])
