@@ -1624,6 +1624,58 @@ export const useMediaStore = defineStore('media', () => {
     return result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
   })
 
+  /**
+   * Global Continue Watching: shows with `watching` status or recent episode
+   * activity, ranked by recency. Next episode = first discovered episode
+   * (regular seasons first, specials last) not marked completed.
+   * Pure local compute — no relay wait — so Home/Library render instantly.
+   */
+  function getContinueWatching(limit = 10) {
+    const items = Array.isArray(trackedItemsList.value) ? trackedItemsList.value : []
+    const shows = items.filter((i) => {
+      const t = i?.media?.type
+      if (t && t !== 'show' && t !== 'episode') return false
+      return i.status === 'watching' || (Array.isArray(i.episodeDTags) && i.episodeDTags.length > 0)
+    })
+    const ranked = shows
+      .map((show) => {
+        const base = String(show.contentId || show.dTag || '').split(':')[0].toLowerCase()
+        if (!base) return null
+        const discovered = getDiscoveredEpisodesForMedia(base)
+        const regular = discovered.filter((e) => e.season > 0)
+        const pool = regular.length ? regular : discovered
+        const watched = new Set(
+          (show.episodeDTags || [])
+            .map((dt) => {
+              const m = String(dt || '').match(/:s(\d+)e(\d+)/i)
+              return m ? `s${Number(m[1])}e${Number(m[2])}` : null
+            })
+            .filter(Boolean)
+        )
+        // Also count completed episode statuses that may not be in episodeDTags
+        const ownNormalized = normalizePubkey(authStore.pubkey)
+        for (const s of Object.values(statuses.value)) {
+          if (normalizePubkey(s.pubkey) !== ownNormalized) continue
+          if (String(s.contentId || '').split(':')[0].toLowerCase() !== base) continue
+          if (s.status !== 'completed') continue
+          const m = String(s.dTag || '').match(/:s(\d+)e(\d+)/i)
+          if (m) watched.add(`s${Number(m[1])}e${Number(m[2])}`)
+        }
+        const next = pool.find((e) => !watched.has(`s${e.season}e${e.episode}`)) || null
+        return {
+          ...show,
+          baseContentId: base,
+          watchedCount: watched.size,
+          knownCount: pool.length,
+          nextEpisode: next,
+          lastActivityAt: show.createdAt || 0,
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0))
+    return ranked.slice(0, limit)
+  }
+
   return {
     statuses,
     ratings,
@@ -1659,6 +1711,7 @@ export const useMediaStore = defineStore('media', () => {
     searchEventAutocomplete,
     importLocalMedia,
     trackedItemsList,
+    getContinueWatching,
     dismissedRecommendations,
     dismissRecommendation,
     isRecommendationDismissed,

@@ -59,6 +59,32 @@ const userReviews = computed(() => {
   return mediaStore.reviews.filter((r) => r.pubkey === authStore.pubkey)
 })
 
+const continueWatching = computed(() => {
+  try {
+    return mediaStore.getContinueWatching(10)
+  } catch {
+    return []
+  }
+})
+
+function openNextEpisode(entry) {
+  if (!entry?.nextEpisode) {
+    navigateToItem(entry.contentId, entry.media)
+    return
+  }
+  router.push({
+    name: 'media-detail',
+    params: { contentId: entry.baseContentId || entry.contentId },
+    query: {
+      type: 'show',
+      title: entry.media?.title || entry.media?.name,
+      year: entry.media?.year,
+      season: entry.nextEpisode.season,
+      episode: entry.nextEpisode.episode,
+    },
+  })
+}
+
 async function handleDelete(item) {
   if (!confirm(`Are you sure you want to remove "${item.media?.name || item.contentId}" from your library? (NIP-09 deletion will be published)`)) {
     return
@@ -184,6 +210,26 @@ function navigateToItem(contentId, media) {
       <div v-if="actionError" class="badge badge-danger error-banner">
         {{ actionError }}
       </div>
+      <!-- Continue Watching -->
+      <section v-if="continueWatching.length" class="continue-section">
+        <h2>Continue Watching</h2>
+        <div class="continue-grid">
+          <article v-for="entry in continueWatching" :key="entry.baseContentId" class="continue-card card">
+            <div>
+              <strong>{{ entry.media?.title || entry.media?.name }}</strong>
+              <span v-if="entry.knownCount"> · {{ entry.watchedCount }}/{{ entry.knownCount }}</span>
+            </div>
+            <p v-if="entry.nextEpisode" class="next-ep">
+              Next: S{{ entry.nextEpisode.season }}E{{ entry.nextEpisode.episode }}
+              <span v-if="entry.nextEpisode.name"> — {{ entry.nextEpisode.name }}</span>
+            </p>
+            <p v-else class="next-ep">Caught up</p>
+            <button class="btn btn-primary btn-sm" type="button" @click="openNextEpisode(entry)">
+              {{ entry.nextEpisode ? 'Open Next' : 'Open Show' }}
+            </button>
+          </article>
+        </div>
+      </section>
       <!-- Filter Tabs -->
       <div class="tabs-bar">
         <button
