@@ -118,7 +118,7 @@ class LocalSigner {
 
       const parsed = parseSecretKey(rawNsec)
       const derived = getPublicKey(parsed.secretKey)
-      if (derived !== storedPubkey) {
+      if (derived.toLowerCase() !== String(storedPubkey).toLowerCase()) {
         // Tampered or mismatched storage — never trust it.
         this.disconnect()
         return false
