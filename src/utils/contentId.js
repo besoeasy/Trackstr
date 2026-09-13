@@ -155,3 +155,29 @@ export function assertContentId(contentId) {
   }
   return contentId.toLowerCase()
 }
+
+/**
+ * Normalizes a Nostr pubkey for use as a map key / comparison.
+ * Hex pubkeys are case-insensitive — relays and extensions may return
+ * upper/mixed case. Lowercasing once prevents orphaned state and
+ * undeletable entries keyed by differently-cased variants.
+ * Sentinel values ('unknown', 'local') pass through lowercased unchanged.
+ * @param {string} pubkey
+ * @returns {string}
+ */
+export function normalizePubkey(pubkey) {
+  return String(pubkey || '')
+    .trim()
+    .toLowerCase()
+}
+
+/**
+ * Builds the author-scoped state key `${pubkey}:${dTag}` with a normalized pubkey.
+ * @param {string} pubkey
+ * @param {string} dTag
+ * @returns {string}
+ */
+export function authorKeyFor(pubkey, dTag) {
+  const normalized = normalizePubkey(pubkey) || 'unknown'
+  return `${normalized}:${dTag}`
+}

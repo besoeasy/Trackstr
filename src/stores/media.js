@@ -8,7 +8,7 @@ import {
   buildSimilarSuggestionEvent,
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
-import { buildDTag, cleanShowTitle, assertContentId } from '@/utils/contentId.js'
+import { buildDTag, cleanShowTitle, assertContentId, normalizePubkey, authorKeyFor } from '@/utils/contentId.js'
 import {
   saveMediaCache,
   loadMediaCache,
@@ -240,7 +240,10 @@ export const useMediaStore = defineStore('media', () => {
     const dTag = evt.tags.find((t) => t[0] === 'd')?.[1] || media.contentId
     // Mutable state is scoped per (author, d-tag): strangers' events never
     // overwrite the viewer's own status/rating.
-    const authorKey = `${evt.pubkey || 'unknown'}:${dTag}`
+    // Pubkeys are case-insensitive hex — normalize once so `ABC...` and
+    // `abc...` from different relays map to the same author key.
+    const normalizedPubkey = normalizePubkey(evt.pubkey) || 'unknown'
+    const authorKey = `${normalizedPubkey}:${dTag}`
 
     if (media.contentId) {
       const existing = mediaLibrary.value[media.contentId]
@@ -270,7 +273,7 @@ export const useMediaStore = defineStore('media', () => {
           progress: progressTag || '',
           eventId: evt.id,
           createdAt: evt.created_at,
-          pubkey: evt.pubkey,
+          pubkey: normalizedPubkey,
           media,
         }
       }
@@ -292,7 +295,7 @@ export const useMediaStore = defineStore('media', () => {
           id: evt.id,
           isReview: options?.isReview || !!(evt.content && evt.content.trim()) || !!current?.isReview,
           createdAt: evt.created_at,
-          pubkey: evt.pubkey,
+          pubkey: normalizedPubkey,
           media,
         }
       }
@@ -338,7 +341,7 @@ export const useMediaStore = defineStore('media', () => {
           eventId: evt.id,
           id: evt.id,
           createdAt: evt.created_at,
-          pubkey: evt.pubkey,
+          pubkey: normalizedPubkey,
           media,
         }
       }
@@ -365,7 +368,7 @@ export const useMediaStore = defineStore('media', () => {
    * a forged notice for somebody else's records is ignored.
    */
   function applyDeletionEvent(evt) {
-    const deleter = String(evt.pubkey || '').toLowerCase()
+    const deleter = normalizePubkey(evt.pubkey)
     if (!deleter) return
     for (const tag of evt.tags) {
       if (!Array.isArray(tag)) continue
@@ -373,17 +376,20 @@ export const useMediaStore = defineStore('media', () => {
         const parts = tag[1].split(':')
         if (parts.length < 3) continue
         const [kindStr, targetPubkey, ...dParts] = parts
-        if (!targetPubkey || targetPubkey.toLowerCase() !== deleter) continue
+        if (!targetPubkey || normalizePubkey(targetPubkey) !== deleter) continue
         const kind = Number(kindStr)
         const dTag = dParts.join(':')
         if (!dTag) continue
         const base = dTag.split(':')[0]
+        // Keys are stored with normalized pubkeys — normalize the coordinate
+        // target too, otherwise a mixed-case `a` tag never deletes anything.
+        const targetKey = authorKeyFor(targetPubkey, dTag)
         if (kind === KINDS.RATING) {
-          delete ratings.value[`${targetPubkey}:${dTag}`]
+          delete ratings.value[targetKey]
         } else if (kind === KINDS.STATUS) {
-          delete statuses.value[`${targetPubkey}:${dTag}`]
+          delete statuses.value[targetKey]
         } else if (kind === KINDS.SIMILAR_SUGGESTION) {
-          delete suggestions.value[`${targetPubkey}:${dTag}`]
+          delete suggestions.value[targetKey]
         }
         pruneProvenance(base)
       }
@@ -395,7 +401,7 @@ export const useMediaStore = defineStore('media', () => {
    * Fetches the viewer's NIP-02 follow list for metadata preference.
    */
   async function fetchFollows(pubkey) {
-    const userPubkey = pubkey || authStore.pubkey
+    const userPubkey = normalizePubkey(pubkey || authStore.pubkey)
     if (!userPubkey) return {}
     try {
       const events = await nostrClient.queryEvents(
@@ -838,7 +844,7 @@ export const useMediaStore = defineStore('media', () => {
       throw new Error('Please connect your Nostr extension to suggest similar titles.')
     }
     const dTag = assertContentId(sourceMedia?.contentId)
-    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const authorKey = authorKeyFor(authStore.pubkey, dTag)
     const existing = suggestions.value[authorKey]
 
     // Combine with existing items if author already suggested items for this title
@@ -872,7 +878,7 @@ export const useMediaStore = defineStore('media', () => {
     }
 
     const dTag = buildDTag({ contentId: media.contentId, season: media.season, episode: media.episode })
-    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const authorKey = authorKeyFor(authStore.pubkey, dTag)
     const existing = ratings.value[authorKey]
 
     // If note is not passed, preserve existing review text
@@ -897,7 +903,7 @@ export const useMediaStore = defineStore('media', () => {
     }
 
     const dTag = buildDTag({ contentId: media.contentId, season: media.season, episode: media.episode })
-    const authorKey = `${authStore.pubkey || 'unknown'}:${dTag}`
+    const authorKey = authorKeyFor(authStore.pubkey, dTag)
     const existing = ratings.value[authorKey]
 
     const rating = options.rating !== undefined && options.rating !== null && options.rating !== ''
@@ -933,19 +939,20 @@ export const useMediaStore = defineStore('media', () => {
     await publishOrThrow(signed)
 
     // Remove from local state
-    const ownPubkey = authStore.pubkey || ''
+    const ownPubkey = normalizePubkey(authStore.pubkey)
     // Coordinate shape "<kind>:<pubkey>:<d-tag>"; d-tag may itself
     // contain colons (episode ":sNeM" suffix), so rejoin the tail.
     const [kindStr, , ...dParts] = String(coordinate).split(':')
     const kind = Number(kindStr)
     const dTag = dParts.join(':')
     const base = dTag.split(':')[0]
+    const ownKey = `${ownPubkey}:${dTag}`
     if (kind === KINDS.RATING) {
-      delete ratings.value[`${ownPubkey}:${dTag}`]
+      delete ratings.value[ownKey]
     } else if (kind === KINDS.STATUS) {
-      delete statuses.value[`${ownPubkey}:${dTag}`]
+      delete statuses.value[ownKey]
     } else if (kind === KINDS.SIMILAR_SUGGESTION) {
-      delete suggestions.value[`${ownPubkey}:${dTag}`]
+      delete suggestions.value[ownKey]
     }
     pruneProvenance(base)
 
@@ -973,7 +980,7 @@ export const useMediaStore = defineStore('media', () => {
   // the viewer's own entries so strangers' activity never leaks into "yours")
   function mediaStateKey(contentId, season, episode, pubkey) {
     const dTag = buildDTag({ contentId, season, episode })
-    return `${pubkey || authStore.pubkey || 'unknown'}:${dTag}`
+    return authorKeyFor(pubkey || authStore.pubkey, dTag)
   }
 
   function getMediaStatus(contentId, season, episode, pubkey) {
@@ -1336,8 +1343,9 @@ export const useMediaStore = defineStore('media', () => {
 
     // Annotate the viewer's OWN status only — never a stranger's.
     if (authStore.pubkey) {
+      const ownNormalized = normalizePubkey(authStore.pubkey)
       Object.values(statuses.value).forEach((s) => {
-        if (s.pubkey === authStore.pubkey && items.has(s.contentId)) {
+        if (normalizePubkey(s.pubkey) === ownNormalized && items.has(s.contentId)) {
           items.get(s.contentId).userStatus = s.status
         }
       })
@@ -1374,7 +1382,8 @@ export const useMediaStore = defineStore('media', () => {
    * @param {string} [pubkey] User pubkey to anchor statuses and ratings
    */
   function importLocalMedia(items, pubkey) {
-    const author = pubkey || authStore.pubkey || 'local'
+    const rawAuthor = pubkey || authStore.pubkey || 'local'
+    const author = rawAuthor === 'local' ? 'local' : normalizePubkey(rawAuthor) || 'local'
     const now = Math.floor(Date.now() / 1000)
 
     for (const item of items) {
@@ -1441,7 +1450,8 @@ export const useMediaStore = defineStore('media', () => {
   const trackedItemsList = computed(() => {
     // The library is the viewer's own tracking — never strangers' events.
     if (!authStore.pubkey) return []
-    const userStatuses = Object.values(statuses.value).filter((s) => s.pubkey === authStore.pubkey)
+    const ownNormalized = normalizePubkey(authStore.pubkey)
+    const userStatuses = Object.values(statuses.value).filter((s) => normalizePubkey(s.pubkey) === ownNormalized)
 
     // Group items by base contentId so multiple episodes don't clutter the library as separate rows
     const groups = new Map()
