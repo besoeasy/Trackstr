@@ -109,6 +109,49 @@ const mediaReviews = computed(() => {
   return mediaStore.getReviewsForMedia(contentId.value)
 })
 
+// NIP-25 likes per review (Kind 7 on the 35400 coordinate)
+const likePending = ref({})
+const likeError = ref('')
+
+function reviewCoordinate(rev) {
+  if (!rev?.pubkey || !(rev?.dTag || rev?.contentId)) return ''
+  return `35400:${rev.pubkey}:${rev.dTag || rev.contentId}`
+}
+
+function likeCountFor(rev) {
+  const coord = reviewCoordinate(rev)
+  return coord ? mediaStore.getLikeCountForCoordinate(coord) : 0
+}
+
+function hasLiked(rev) {
+  const coord = reviewCoordinate(rev)
+  return coord ? mediaStore.hasLikedCoordinate(coord) : false
+}
+
+async function toggleLike(rev) {
+  const coord = reviewCoordinate(rev)
+  if (!coord) return
+  if (!authStore.isAuthenticated) {
+    authStore.openLoginModal()
+    return
+  }
+  const key = rev.eventId || coord
+  if (likePending.value[key]) return
+  likePending.value[key] = true
+  likeError.value = ''
+  try {
+    await mediaStore.toggleLikeReview({
+      coordinate: coord,
+      authorPubkey: rev.pubkey,
+      liked: hasLiked(rev),
+    })
+  } catch (err) {
+    likeError.value = err?.message || 'Failed to like review.'
+  } finally {
+    delete likePending.value[key]
+  }
+}
+
 // Similar suggestions for this media (Kind 35401)
 const mediaSimilarSuggestions = computed(() => {
   return mediaStore.getSimilarSuggestionsForMedia(contentId.value)
@@ -878,6 +921,17 @@ function goBack() {
                 </div>
                 <div v-if="rev.spoiler" class="badge badge-warning spoiler-tag">Contains Spoilers</div>
                 <p v-if="rev.content" class="review-content">{{ rev.content }}</p>
+                <div class="review-actions">
+                  <button
+                    class="btn btn-outline btn-sm"
+                    type="button"
+                    :disabled="!!likePending[rev.eventId || reviewCoordinate(rev)]"
+                    @click="toggleLike(rev)"
+                  >
+                    {{ hasLiked(rev) ? '♥' : '♡' }} {{ likeCountFor(rev) }}
+                  </button>
+                </div>
+                <p v-if="likeError" class="badge badge-danger error-banner">{{ likeError }}</p>
               </div>
             </div>
           </div>
