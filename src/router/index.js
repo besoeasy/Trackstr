@@ -49,6 +49,11 @@ const routes = [
     name: 'activity',
     component: () => import('@/views/ActivityView.vue'),
   },
+  {
+    path: '/u/:identity',
+    name: 'user-profile',
+    component: () => import('@/views/UserProfileView.vue'),
+  },
   // Unknown paths land home instead of rendering a bare navbar.
   {
     path: '/:pathMatch(.*)*',

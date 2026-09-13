@@ -7,6 +7,7 @@ import {
   buildStatusEvent,
   buildSimilarSuggestionEvent,
   buildDeletionEvent,
+  buildReactionEvent,
 } from '@/services/nostr/events.js'
 import { buildDTag, cleanShowTitle, assertContentId, normalizePubkey, authorKeyFor } from '@/utils/contentId.js'
 import { safeStorage } from '@/utils/storage.js'
@@ -33,6 +34,7 @@ export const useMediaStore = defineStore('media', () => {
   const mediaLibrary = ref({}) // key: contentId -> base media object with cachedAt
   const follows = ref({}) // key: pubkey -> 1 (viewer's NIP-02 follow list, for metadata preference)
   const dismissedRecommendations = ref({}) // key: base contentId -> timestamp
+  const likes = ref({}) // key: `${coordinate}:${likerPubkey}` -> { coordinate, liker, author, eventId, createdAt }
   // Nostr-event provenance: contentIds observed in ingested Nostr events.
   // mediaLibrary also caches provider search results (TMDB/MusicBrainz), so
   // Nostr-only surfaces must filter by this set. key: contentId -> 1
@@ -168,6 +170,7 @@ export const useMediaStore = defineStore('media', () => {
     statuses.value = {}
     ratings.value = {}
     suggestions.value = {}
+    likes.value = {}
     mediaLibrary.value = {}
     follows.value = {}
     dismissedRecommendations.value = {}
@@ -233,6 +236,11 @@ export const useMediaStore = defineStore('media', () => {
     // Inbound NIP-09 deletion notices are applied, never stored.
     if (evt.kind === KINDS.DELETION) {
       applyDeletionEvent(evt)
+      return
+    }
+    // NIP-25 reactions are lightweight and carry no media tags.
+    if (evt.kind === KINDS.REACTION) {
+      ingestReaction(evt)
       return
     }
     const media = parseMediaTags(evt.tags)
@@ -397,6 +405,34 @@ export const useMediaStore = defineStore('media', () => {
       }
     }
     saveToIndexedDb()
+  }
+
+  /**
+   * Ingests a NIP-25 reaction (kind 7). Keyed by coordinate+liker so each
+   * user contributes at most one like per review; content "-" removes it.
+   */
+  function ingestReaction(evt) {
+    const tags = Array.isArray(evt.tags) ? evt.tags : []
+    const coordinate = tags.find((t) => t[0] === 'a')?.[1]
+    if (!coordinate || String(coordinate).split(':').length < 3) return
+    const liker = normalizePubkey(evt.pubkey)
+    if (!liker) return
+    const key = `${String(coordinate).toLowerCase()}:${liker}`
+    if (evt.content === '-') {
+      delete likes.value[key]
+      return
+    }
+    const author = normalizePubkey(tags.find((t) => t[0] === 'p')?.[1])
+    const current = likes.value[key]
+    if (!current || (evt.created_at || 0) >= (current.createdAt || 0)) {
+      likes.value[key] = {
+        coordinate,
+        liker,
+        author,
+        eventId: evt.id,
+        createdAt: evt.created_at || 0,
+      }
+    }
   }
 
   /**
@@ -573,7 +609,7 @@ export const useMediaStore = defineStore('media', () => {
     try {
       const filter = {
         authors: [userPubkey],
-        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.SIMILAR_SUGGESTION, KINDS.DELETION],
+        kinds: [KINDS.RATING, KINDS.STATUS, KINDS.SIMILAR_SUGGESTION, KINDS.DELETION, KINDS.REACTION],
         limit: 500,
       }
 
@@ -961,6 +997,43 @@ export const useMediaStore = defineStore('media', () => {
 
     saveToIndexedDb()
     return signed
+  }
+
+  /**
+   * Likes/unlikes a review (NIP-25 kind 7 on the rating coordinate).
+   * Likes survive rating edits because they address `a` coordinates.
+   */
+  async function toggleLikeReview({ coordinate, authorPubkey, liked }) {
+    if (!authStore.isAuthenticated) {
+      throw new Error('Please connect to like reviews.')
+    }
+    const template = buildReactionEvent({
+      coordinate,
+      authorPubkey: normalizePubkey(authorPubkey),
+      content: liked ? '-' : '+',
+    })
+    const signed = await nostrClient.signEvent(template)
+    await publishOrThrow(signed)
+    ingestEvent(signed)
+    return signed
+  }
+
+  function getLikesForCoordinate(coordinate) {
+    if (!coordinate) return []
+    const prefix = `${String(coordinate).toLowerCase()}:`
+    return Object.values(likes.value).filter((l) =>
+      `${String(l.coordinate || '').toLowerCase()}:${normalizePubkey(l.liker)}`.startsWith(prefix)
+    )
+  }
+
+  function getLikeCountForCoordinate(coordinate) {
+    return getLikesForCoordinate(coordinate).length
+  }
+
+  function hasLikedCoordinate(coordinate, pubkey) {
+    const me = normalizePubkey(pubkey || authStore.pubkey)
+    if (!coordinate || !me) return false
+    return !!likes.value[`${String(coordinate).toLowerCase()}:${me}`]
   }
 
   /**
@@ -1592,6 +1665,14 @@ export const useMediaStore = defineStore('media', () => {
     clearDismissedRecommendations,
     getFollowEngagement,
     fetchFollowedActivity,
+    likes,
+    toggleLikeReview,
+    getLikesForCoordinate,
+    getLikeCountForCoordinate,
+    hasLikedCoordinate,
+    ingestEvent,
+    ingestBatch,
+    ingestReaction,
     isCacheLoaded,
     cacheInitPromise,
     initCache,

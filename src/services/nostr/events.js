@@ -9,6 +9,7 @@ export const KINDS = {
   METADATA: 0,
   CONTACTS: 3,
   DELETION: 5,
+  REACTION: 7,
   RATING: 35400,
   SIMILAR_SUGGESTION: 35401,
   STATUS: 35402,
@@ -249,5 +250,42 @@ export function buildDeletionEvent({ coordinate, reason = 'Deleted by user' }) {
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content: reason,
+  }
+}
+
+/**
+ * Builds a NIP-25 Reaction (kind 7) to a parameterized replaceable event.
+ * Likes address the `a` coordinate so they survive rating edits (which keep
+ * the same d-tag but new event ids).
+ * @param {Object} target
+ * @param {string} target.coordinate "<kind>:<pubkey>:<d-tag>"
+ * @param {string} target.authorPubkey hex pubkey of the liked event's author
+ * @param {string} [target.content] "+" to like, "" / "-" to unlike
+ * @returns {Object} Unsigned event template
+ */
+export function buildReactionEvent({ coordinate, authorPubkey, content = '+' }) {
+  if (!coordinate) {
+    throw new Error('Reaction coordinate is required.')
+  }
+  const parts = String(coordinate).split(':')
+  const [kind, pubkey, ...dParts] = parts
+  const dTag = dParts.join(':')
+  if (!/^\d+$/.test(kind || '') || !/^[0-9a-f]{64}$/i.test(pubkey || '') || !dTag) {
+    throw new Error('Reaction coordinate must look like "<kind>:<64-hex pubkey>:<d-tag>".')
+  }
+  if (!/^[0-9a-f]{64}$/i.test(authorPubkey || '')) {
+    throw new Error('Reaction author pubkey must be 64-hex.')
+  }
+  const tags = [
+    ['a', coordinate],
+    ['p', String(authorPubkey).toLowerCase()],
+    ['k', String(kind)],
+    ['trackstr', APP_ID],
+  ]
+  return {
+    kind: KINDS.REACTION,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: content === '-' ? '-' : '+',
   }
 }
