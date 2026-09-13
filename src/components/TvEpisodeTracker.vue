@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/auth.js'
 import { fetchShowEpisodes } from '@/services/api/tv.js'
 import { buildDTag, cleanShowTitle } from '@/utils/contentId.js'
 import { safeMediaUrl } from '@/utils/urls.js'
+import { safeStorage } from '@/utils/storage.js'
+import { logger } from '@/utils/logger.js'
 import RatingInput from '@/components/RatingInput.vue'
 
 const props = defineProps({
@@ -112,7 +114,7 @@ const upNextEpisode = computed(() => {
 function saveCustomEpisode(ep) {
   try {
     const key = `trackstr_custom_episodes_${props.contentId}`
-    const raw = localStorage.getItem(key)
+    const raw = safeStorage.getItem(key)
     const list = raw ? JSON.parse(raw) : []
     const idx = list.findIndex((x) => x.season === ep.season && x.episode === ep.episode)
     if (idx >= 0) {
@@ -120,7 +122,7 @@ function saveCustomEpisode(ep) {
     } else {
       list.push({ season: ep.season, episode: ep.episode, name: ep.name })
     }
-    localStorage.setItem(key, JSON.stringify(list))
+    safeStorage.setItem(key, JSON.stringify(list))
   } catch {}
 }
 
@@ -270,7 +272,7 @@ async function submitQuickLog() {
     showQuickLog.value = false
     quickTitle.value = ''
   } catch (err) {
-    console.error('Failed to quick log episode:', err)
+    logger.error('Failed to quick log episode:', err)
   } finally {
     isLoggingQuickEp.value = false
   }
@@ -427,7 +429,7 @@ async function loadEpisodes() {
       }
     }
   } catch (err) {
-    console.warn('Failed to load episodes for show:', err)
+    logger.warn('Failed to load episodes for show:', err)
   } finally {
     isLoading.value = false
   }
@@ -478,7 +480,7 @@ async function autoPromoteShowStatus() {
       title: cleanTitle,
     }
     await mediaStore.setStatus(parentShowMedia, 'watching').catch((err) => {
-      console.warn('Could not auto-promote show status:', err)
+      logger.warn('Could not auto-promote show status:', err)
     })
   }
 }
@@ -513,7 +515,7 @@ async function toggleWatched(ep) {
       await autoPromoteShowStatus()
     }
   } catch (err) {
-    console.error('Failed to toggle episode status:', err)
+    logger.error('Failed to toggle episode status:', err)
   } finally {
     const next = { ...inFlightMap.value }
     delete next[key]
@@ -539,7 +541,7 @@ async function markSeasonWatched() {
     }
     await autoPromoteShowStatus()
   } catch (err) {
-    console.error('Failed to batch mark season watched:', err)
+    logger.error('Failed to batch mark season watched:', err)
   } finally {
     isBatchOperating.value = false
   }
@@ -569,7 +571,7 @@ async function unmarkSeasonWatched() {
       })
     }
   } catch (err) {
-    console.error('Failed to batch unmark season:', err)
+    logger.error('Failed to batch unmark season:', err)
   } finally {
     isBatchOperating.value = false
   }
@@ -596,7 +598,7 @@ async function handleEpisodeRating(ep, newRating) {
       await mediaStore.setRating(epMedia, newRating)
     }
   } catch (err) {
-    console.error('Failed to set episode rating:', err)
+    logger.error('Failed to set episode rating:', err)
   } finally {
     activeRatingEpisode.value = null
   }

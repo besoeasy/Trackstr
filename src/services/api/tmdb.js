@@ -8,6 +8,7 @@
  */
 
 import { cleanShowTitle } from '@/utils/contentId.js'
+import { safeStorage } from '@/utils/storage.js'
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
@@ -18,10 +19,8 @@ const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
  * open providers (TVMaze, Wikipedia) always work keyless.
  */
 export function getTmdbApiKey() {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('trackstr_tmdb_api_key')
-    if (saved && saved.trim()) return saved.trim()
-  }
+  const saved = safeStorage.getItem('trackstr_tmdb_api_key')
+  if (saved && saved.trim()) return saved.trim()
   const envKey = typeof import.meta !== 'undefined' && import.meta?.env?.VITE_TMDB_API_KEY
   return (envKey && envKey.trim()) || ''
 }

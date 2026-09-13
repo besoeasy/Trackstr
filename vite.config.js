@@ -8,7 +8,8 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 export default defineConfig({
   plugins: [
     vue(),
-    vueDevTools(),
+    // DevTools only in dev — never ship it in production bundles.
+    ...(process.env.NODE_ENV === 'production' ? [] : [vueDevTools()]),
   ],
   resolve: {
     alias: {
@@ -16,7 +17,7 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'node',
+    environment: 'happy-dom',
     setupFiles: ['./src/test/setup.js'],
   },
 })

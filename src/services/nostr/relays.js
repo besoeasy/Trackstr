@@ -2,6 +2,8 @@
  * Trackstr Relay Configuration
  */
 import { normalizeRelayUrl } from '@/utils/urls.js'
+import { safeStorage } from '@/utils/storage.js'
+import { logger } from '@/utils/logger.js'
 
 export const DEFAULT_RELAYS = [
   'wss://relay.primal.net',
@@ -42,7 +44,7 @@ export function sanitizeRelayList(relays) {
  */
 export function getRelays() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    const saved = safeStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -52,13 +54,11 @@ export function getRelays() {
         }
       }
       // Stored value is unusable — purge it so we stop warning every call.
-      localStorage.removeItem(STORAGE_KEY)
+      safeStorage.removeItem(STORAGE_KEY)
     }
   } catch (e) {
-    console.warn('Failed to parse saved relays, resetting to defaults:', e)
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {}
+    logger.warn('Relays', 'Failed to parse saved relays, resetting to defaults.', e)
+    safeStorage.removeItem(STORAGE_KEY)
   }
   return [...DEFAULT_RELAYS]
 }
@@ -70,9 +70,9 @@ export function getRelays() {
 export function saveRelays(relays) {
   try {
     const unique = sanitizeRelayList(relays)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(unique))
+    safeStorage.setItem(STORAGE_KEY, JSON.stringify(unique))
   } catch (e) {
-    console.error('Failed to save relays:', e)
+    logger.error('Relays', 'Failed to save relays.', e)
   }
 }
 
@@ -81,6 +81,6 @@ export function saveRelays(relays) {
  * @returns {string[]}
  */
 export function resetRelays() {
-  localStorage.removeItem(STORAGE_KEY)
+  safeStorage.removeItem(STORAGE_KEY)
   return [...DEFAULT_RELAYS]
 }

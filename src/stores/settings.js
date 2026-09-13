@@ -3,12 +3,13 @@ import { ref } from 'vue'
 import { getRelays, saveRelays, resetRelays, DEFAULT_RELAYS, MAX_RELAYS } from '@/services/nostr/relays.js'
 import { getTmdbApiKey } from '@/services/api/tmdb.js'
 import { normalizeRelayUrl } from '@/utils/urls.js'
+import { safeStorage } from '@/utils/storage.js'
 import { nostrClient } from '@/services/nostr/client.js'
 
 export const useSettingsStore = defineStore('settings', () => {
   const relays = ref(getRelays())
   const tmdbApiKey = ref(getTmdbApiKey())
-  const theme = ref(localStorage.getItem('trackstr_theme') || 'dark')
+  const theme = ref(safeStorage.getItem('trackstr_theme') || 'dark')
   const settingsError = ref('')
 
   function refreshRelayConnections() {
@@ -51,12 +52,12 @@ export const useSettingsStore = defineStore('settings', () => {
   function setTmdbApiKey(key) {
     const clean = key.trim()
     tmdbApiKey.value = clean
-    localStorage.setItem('trackstr_tmdb_api_key', clean)
+    safeStorage.setItem('trackstr_tmdb_api_key', clean)
   }
 
   function toggleTheme() {
     theme.value = theme.value === 'dark' ? 'light' : 'dark'
-    localStorage.setItem('trackstr_theme', theme.value)
+    safeStorage.setItem('trackstr_theme', theme.value)
     document.documentElement.setAttribute('data-theme', theme.value)
   }
 

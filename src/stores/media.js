@@ -9,6 +9,8 @@ import {
   buildDeletionEvent,
 } from '@/services/nostr/events.js'
 import { buildDTag, cleanShowTitle, assertContentId, normalizePubkey, authorKeyFor } from '@/utils/contentId.js'
+import { safeStorage } from '@/utils/storage.js'
+import { logger } from '@/utils/logger.js'
 import {
   saveMediaCache,
   loadMediaCache,
@@ -748,8 +750,8 @@ export const useMediaStore = defineStore('media', () => {
 
       const countMention = (cId, at) => {
         if (!cId) return
-        const baseContentId = String(cId).split(':')[0]
-        if (!/^[0-9a-f]{64}$/i.test(baseContentId)) return
+        const baseContentId = String(cId).split(':')[0].toLowerCase()
+        if (!/^[0-9a-f]{64}$/.test(baseContentId)) return
         mentionCounts.set(baseContentId, (mentionCounts.get(baseContentId) || 0) + 1)
         if (!latestTimes.has(baseContentId) || at > latestTimes.get(baseContentId)) {
           latestTimes.set(baseContentId, at)
@@ -763,7 +765,9 @@ export const useMediaStore = defineStore('media', () => {
         countMention(getTag('contentid'), evt.created_at || 0)
       })
 
-      // Fold in local-only state (including ratings, previously uncounted)
+      // Fold in local-only state. Note: `reviews` is derived from `ratings`
+      // (same eventIds) — folding both would double-count, so fold ratings
+      // once and skip the derived view.
       const foldLocal = (eventId, cId, at) => {
         if (!eventId || seenEventIds.has(eventId)) return
         seenEventIds.add(eventId)
@@ -771,7 +775,6 @@ export const useMediaStore = defineStore('media', () => {
       }
       Object.values(statuses.value).forEach((s) => foldLocal(s.eventId, s.contentId, s.createdAt))
       Object.values(ratings.value).forEach((r) => foldLocal(r.eventId, r.contentId, r.createdAt))
-      reviews.value.forEach((r) => foldLocal(r.eventId || r.id, r.contentId, r.createdAt))
       Object.values(suggestions.value).forEach((sg) => foldLocal(sg.eventId || sg.id, sg.contentId, sg.createdAt))
 
       // Get all known media items from state
@@ -1042,8 +1045,9 @@ export const useMediaStore = defineStore('media', () => {
           latestCreatedAt: 0,
         }
 
-        if (!existing.recommenders.includes(entry.pubkey)) {
-          existing.recommenders.push(entry.pubkey)
+        const recommender = normalizePubkey(entry.pubkey)
+        if (recommender && !existing.recommenders.includes(recommender)) {
+          existing.recommenders.push(recommender)
           existing.voteCount += 1
         }
 
@@ -1068,8 +1072,7 @@ export const useMediaStore = defineStore('media', () => {
   /**
    * Aggregates all Kind 35401 community suggestions across all source items.
    * Orders targets by vote count (distinct recommending authors) and recency.
-   */
-  function getAllCommunitySuggestions() {
+   */  function getAllCommunitySuggestions() {
     const aggregated = new Map()
 
     Object.values(suggestions.value).forEach((entry) => {
@@ -1093,8 +1096,9 @@ export const useMediaStore = defineStore('media', () => {
           latestCreatedAt: 0,
         }
 
-        if (!existing.recommenders.includes(entry.pubkey)) {
-          existing.recommenders.push(entry.pubkey)
+        const recommenderAll = normalizePubkey(entry.pubkey)
+        if (recommenderAll && !existing.recommenders.includes(recommenderAll)) {
+          existing.recommenders.push(recommenderAll)
           existing.voteCount += 1
         }
 

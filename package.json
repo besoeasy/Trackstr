@@ -39,7 +39,7 @@
     "url": "https://github.com/besoeasy/Trackstr/issues"
   },
   "author": "besoeasy",
-  "license": "TBD",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
